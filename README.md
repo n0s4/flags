@@ -1,7 +1,8 @@
 # Arguments
 
-A powerful, practical command-line argument parser for Zig that doesn't get in the way.
+A powerful, practical command-line argument parser for Zig that won't get in your way.
 
+## Demo
 
 ```zig
 const std = @import("std");
@@ -56,7 +57,11 @@ pub fn main() !void {
  $ ./path/to/myprogram -fa 21 --required foo --use-color always bar baz
 ```
 
-Goals:
+## Getting Started
+
+Check out the [import guide](https://github.com/n0s4/Arguments/wiki/Importing) to get set up using Arguments in your project.
+
+## Goals
 - [ ] helpful docs
 - [ ] decent tests
 - [ ] automatic help message generation
