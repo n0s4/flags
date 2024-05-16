@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root");
 const validate = @import("validate.zig");
 
 const ArgIterator = std.process.ArgIterator;
@@ -19,8 +20,11 @@ pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-// TODO allow user to specify the maximum number of positional arguments.
-const max_positional_args = 8;
+const default_max_positionals = 32;
+const max_positional_args: comptime_int = if (@hasDecl(root, "max_positional_arguments"))
+    root.max_positional_arguments
+else
+    default_max_positionals;
 // This must be global to guarantee a static lifetime, otherwise allocation would be needed at
 // runtime to store positional arguments.
 var positionals: [max_positional_args][]const u8 = undefined;
