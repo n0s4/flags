@@ -12,9 +12,10 @@ pub fn Result(comptime Config: type) type {
     };
 }
 
-fn fatal(comptime message: []const u8, args: anytype) noreturn {
+/// Prints the formatted error message to stderr and exits with status code 1.
+pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
     const stderr = std.io.getStdErr().writer();
-    stderr.print("error: " ++ message ++ "\n", args) catch {};
+    stderr.print("error: " ++ message ++ ".\n", args) catch {};
     std.process.exit(1);
 }
 
@@ -101,10 +102,10 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
     };
 }
 
-fn parseArg(comptime T: type, args: *ArgIterator) T {
+fn parseArg(comptime T: type, args: *ArgIterator, flag_name: []const u8) T {
     if (T == bool) return true;
 
-    const value = args.next() orelse fatal("expected argument.", .{});
+    const value = args.next() orelse fatal("expected argument for '{s}'", .{flag_name});
 
     const V = switch (@typeInfo(T)) {
         .Optional => |optional| optional.child,
@@ -116,22 +117,22 @@ fn parseArg(comptime T: type, args: *ArgIterator) T {
     if (@typeInfo(V) == .Enum) {
         inline for (std.meta.fields(V)) |field| {
             if (std.mem.eql(u8, value, toKebab(field.name))) {
-                return @enumFromInt(field.value);
+                return @field(V, field.name);
             }
         }
 
-        fatal("invalid option: '{s}'", .{value});
+        fatal("invalid option for '{s}': '{s}'", .{ flag_name, value });
     }
 
     if (@typeInfo(V) == .Int) {
         const num = std.fmt.parseInt(V, value, 10) catch |err| switch (err) {
             error.Overflow => fatal(
-                "integer argument too big for {s}: '{s}'.",
+                "integer argument too big for {s}: '{s}'",
                 .{ @typeName(V), value },
             ),
             error.InvalidCharacter => fatal(
-                "expected integer argument, found '{s}'",
-                .{value},
+                "expected integer argument for '{s}', found '{s}'",
+                .{ flag_name, value },
             ),
         };
         return num;
