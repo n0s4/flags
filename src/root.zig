@@ -2,6 +2,15 @@ const std = @import("std");
 
 const ArgIterator = std.process.ArgIterator;
 
+/// Combines `Config` with an `args` field which stores positional arguments.
+pub fn Result(comptime Config: type) type {
+    return struct {
+        config: Config,
+        /// Stores extra positional arguments not linked to any flag or option.
+        args: []const []const u8,
+    };
+}
+
 fn fatal(comptime message: []const u8, args: anytype) noreturn {
     const stderr = std.io.getStdErr().writer();
     stderr.print("error: " ++ message ++ "\n", args) catch {};
@@ -10,29 +19,14 @@ fn fatal(comptime message: []const u8, args: anytype) noreturn {
 
 // TODO allow user to specify the maximum number of positional arguments.
 const max_positional_args = 8;
+// This must be global to guarantee a static lifetime, otherwise allocation would be needed at
+// runtime to store positional arguments.
 var positionals: [max_positional_args][]const u8 = undefined;
 
-/// Parses the given command line arguments into a `Config`.
-pub fn parse(args: *ArgIterator, comptime Config: type) Config {
+pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
     if (@typeInfo(Config) != .Struct) @compileError("Config type must be a struct.");
 
-    comptime var fields: [std.meta.fields(Config).len]std.builtin.Type.StructField = undefined;
-    comptime var field_count = 0;
-
-    if (!@hasField(Config, "args")) {
-        @compileError("Config struct must contain 'args' field to store positional arguments.");
-    }
-
     inline for (std.meta.fields(Config)) |field| {
-        if (comptime std.mem.eql(u8, field.name, "args")) {
-            if (field.type != []const []const u8) {
-                @compileError("field 'args' must be of `[]const []const u8`");
-            }
-            continue;
-        }
-
-        fields[field_count] = field;
-        field_count += 1;
         switch (@typeInfo(field.type)) {
             // Allow bool values only outside of optionals
             .Bool => {},
@@ -47,30 +41,27 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
             @compileError("'switches' must be a struct declaration.");
         }
 
-        const switch_fields = std.meta.fields(Switches);
-        inline for (switch_fields, 1..) |switch_field, i| {
+        const fields = std.meta.fields(Switches);
+        inline for (fields, 1..) |field, i| {
             // check for duplicates
-            inline for (switch_fields[i..]) |other_switch| {
-                if (@field(Config.switches, switch_field.name) ==
-                    @field(Config.switches, other_switch.name))
+            inline for (fields[i..]) |other_field| {
+                if (@field(Config.switches, field.name) ==
+                    @field(Config.switches, other_field.name))
                 {
                     @compileError(std.fmt.comptimePrint(
                         "Duplicated switch values: '{s}' and '{s}'",
-                        .{ switch_field.name, other_switch.name },
+                        .{ field.name, other_field.name },
                     ));
                 }
             }
 
-            if (!@hasField(Config, switch_field.name)) @compileError(
-                "switch name not defined in Config: '" ++ switch_field.name ++ "'",
+            if (!@hasField(Config, field.name)) @compileError(
+                "switch name not defined in Config: '" ++ field.name ++ "'",
             );
-            if (comptime std.mem.eql(u8, switch_field.name, "args")) {
-                @compileError("Cannot define switch for 'args'");
-            }
 
-            const swtch = @field(Config.switches, switch_field.name);
+            const swtch = @field(Config.switches, field.name);
             if (@TypeOf(swtch) != comptime_int) @compileError(
-                "switch is not a character: '" ++ switch_field.name ++ "'",
+                "switch is not a character: '" ++ field.name ++ "'",
             );
             switch (swtch) {
                 'a'...'z', 'A'...'Z' => {},
@@ -82,7 +73,7 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
         }
     }
 
-    var result: Config = undefined;
+    var config: Config = undefined;
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Config), bool, false) = .{};
 
     var positional_count: u32 = 0;
@@ -98,13 +89,13 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
             continue :next_arg;
         }
 
-        if (arg.len == 1) fatal("invalid argument: '-'", .{});
+        if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
         if (arg[1] == '-') {
-            inline for (fields[0..field_count]) |field| {
+            inline for (std.meta.fields(Config)) |field| {
                 if (std.mem.eql(u8, arg, flagName(field))) {
                     @field(passed, field.name) = true;
 
-                    @field(result, field.name) = parseArg(field.type, args);
+                    @field(config, field.name) = parseArg(field.type, args);
 
                     continue :next_arg;
                 }
@@ -118,13 +109,13 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
                     if (char == @field(Config.switches, switch_field.name)) {
                         @field(passed, switch_field.name) = true;
 
-                        const FieldType = @TypeOf(@field(result, switch_field.name));
+                        const FieldType = @TypeOf(@field(config, switch_field.name));
                         // Removing this check would allow formats like "-abc value-for-a value-for-b value-for-c"
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
                         const value = parseArg(FieldType, args);
-                        @field(result, switch_field.name) = value;
+                        @field(config, switch_field.name) = value;
 
                         continue :next_switch;
                     }
@@ -136,13 +127,13 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
         }
     }
 
-    inline for (fields[0..field_count]) |field| {
+    inline for (std.meta.fields(Config)) |field| {
         if (@field(passed, field.name) == false) {
             if (field.default_value) |default_opaque| {
                 const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
-                @field(result, field.name) = default;
+                @field(config, field.name) = default;
             } else {
-                @field(result, field.name) = switch (@typeInfo(field.type)) {
+                @field(config, field.name) = switch (@typeInfo(field.type)) {
                     .Optional => null,
                     .Bool => false,
                     else => fatal("missing required flag: '{s}'", .{flagName(field)}),
@@ -151,9 +142,10 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Config {
         }
     }
 
-    result.args = positionals[0..positional_count];
-
-    return result;
+    return Result(Config){
+        .config = config,
+        .args = positionals[0..positional_count],
+    };
 }
 
 fn assertValidFieldType(comptime T: type, comptime field_name: []const u8) void {
