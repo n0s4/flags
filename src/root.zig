@@ -115,7 +115,7 @@ fn parseArg(comptime T: type, args: *ArgIterator) T {
 
     if (@typeInfo(V) == .Enum) {
         inline for (std.meta.fields(V)) |field| {
-            if (std.mem.eql(u8, value, field.name)) {
+            if (std.mem.eql(u8, value, toKebab(field.name))) {
                 return @enumFromInt(field.value);
             }
         }
@@ -140,11 +140,17 @@ fn parseArg(comptime T: type, args: *ArgIterator) T {
     comptime unreachable;
 }
 
+/// Converts `my_zig_field` to `--my-zig-field` at comptime for comparison to command line flags.
 fn flagName(comptime field: std.builtin.Type.StructField) []const u8 {
-    return comptime blk: {
-        var name: []const u8 = "--";
+    return "--" ++ comptime toKebab(field.name);
+}
 
-        for (field.name) |ch| name = name ++ .{switch (ch) {
+/// Converts from snake_case to kebab-case at comptime.
+fn toKebab(comptime string: []const u8) []const u8 {
+    return comptime blk: {
+        var name: []const u8 = "";
+
+        for (string) |ch| name = name ++ .{switch (ch) {
             '_' => '-',
             else => ch,
         }};
