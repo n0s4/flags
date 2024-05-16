@@ -49,7 +49,7 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
                 if (std.mem.eql(u8, arg, flagName(field))) {
                     @field(passed, field.name) = true;
 
-                    @field(config, field.name) = parseArg(field.type, args);
+                    @field(config, field.name) = parseArg(field.type, args, flagName(field));
 
                     continue :next_arg;
                 }
@@ -68,7 +68,7 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
-                        const value = parseArg(FieldType, args);
+                        const value = parseArg(FieldType, args, &.{ '-', char });
                         @field(config, switch_field.name) = value;
 
                         continue :next_switch;
