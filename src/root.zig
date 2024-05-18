@@ -29,10 +29,34 @@ else
 // runtime to store positional arguments.
 var positionals: [max_positional_args][]const u8 = undefined;
 
-pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
-    comptime validate.assertValidConfig(Config);
-    var config: Config = undefined;
-    var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Config), bool, false) = .{};
+pub fn parse(args: *ArgIterator, comptime Command: type) Result(Command) {
+    return switch (@typeInfo(Command)) {
+        .Union => parseCommands(args, Command),
+        .Struct => parseOptions(args, Command),
+        else => @compileError("Command must be a struct or union type."),
+    };
+}
+
+fn parseCommands(args: *ArgIterator, comptime Commands: type) Result(Commands) {
+    const sub_command = args.next() orelse fatal("expected subcommand", .{});
+
+    inline for (@typeInfo(Commands).Union.fields) |command| {
+        if (std.mem.eql(u8, command.name, sub_command)) {
+            const sub_result = parse(args, command.type);
+            return .{
+                .config = @unionInit(Commands, command.name, sub_result.config),
+                .args = sub_result.args,
+            };
+        }
+    }
+
+    fatal("unrecognized subcommand: '{s}'", .{sub_command});
+}
+
+fn parseOptions(args: *ArgIterator, comptime Options: type) Result(Options) {
+    comptime validate.assertValidConfig(Options);
+    var options: Options = undefined;
+    var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Options), bool, false) = .{};
 
     var positional_count: u32 = 0;
 
@@ -49,11 +73,11 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
 
         if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
         if (arg[1] == '-') {
-            inline for (std.meta.fields(Config)) |field| {
+            inline for (std.meta.fields(Options)) |field| {
                 if (std.mem.eql(u8, arg, flagName(field))) {
                     @field(passed, field.name) = true;
 
-                    @field(config, field.name) = parseArg(field.type, args, flagName(field));
+                    @field(options, field.name) = parseArg(field.type, args, flagName(field));
 
                     continue :next_arg;
                 }
@@ -61,19 +85,19 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
             fatal("unrecognized flag: {s}", .{arg});
         }
 
-        if (@hasDecl(Config, "switches")) {
+        if (@hasDecl(Options, "switches")) {
             next_switch: for (arg[1..], 1..) |char, i| {
-                inline for (std.meta.fields(@TypeOf(Config.switches))) |switch_field| {
-                    if (char == @field(Config.switches, switch_field.name)) {
+                inline for (std.meta.fields(@TypeOf(Options.switches))) |switch_field| {
+                    if (char == @field(Options.switches, switch_field.name)) {
                         @field(passed, switch_field.name) = true;
 
-                        const FieldType = @TypeOf(@field(config, switch_field.name));
+                        const FieldType = @TypeOf(@field(options, switch_field.name));
                         // Removing this check would allow formats like "-abc value-for-a value-for-b value-for-c"
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
                         const value = parseArg(FieldType, args, &.{ '-', char });
-                        @field(config, switch_field.name) = value;
+                        @field(options, switch_field.name) = value;
 
                         continue :next_switch;
                     }
@@ -85,13 +109,13 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
         }
     }
 
-    inline for (std.meta.fields(Config)) |field| {
+    inline for (std.meta.fields(Options)) |field| {
         if (@field(passed, field.name) == false) {
             if (field.default_value) |default_opaque| {
                 const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
-                @field(config, field.name) = default;
+                @field(options, field.name) = default;
             } else {
-                @field(config, field.name) = switch (@typeInfo(field.type)) {
+                @field(options, field.name) = switch (@typeInfo(field.type)) {
                     .Optional => null,
                     .Bool => false,
                     else => fatal("missing required flag: '{s}'", .{flagName(field)}),
@@ -100,8 +124,8 @@ pub fn parse(args: *ArgIterator, comptime Config: type) Result(Config) {
         }
     }
 
-    return Result(Config){
-        .config = config,
+    return Result(Options){
+        .config = options,
         .args = positionals[0..positional_count],
     };
 }
