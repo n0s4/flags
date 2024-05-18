@@ -30,6 +30,11 @@ else
 var positionals: [max_positional_args][]const u8 = undefined;
 
 pub fn parse(args: *ArgIterator, comptime Command: type) Result(Command) {
+    std.debug.assert(args.skip());
+    return parseGeneric(args, Command);
+}
+
+fn parseGeneric(args: *ArgIterator, comptime Command: type) Result(Command) {
     return switch (@typeInfo(Command)) {
         .Union => parseCommands(args, Command),
         .Struct => parseOptions(args, Command),
@@ -42,7 +47,7 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type) Result(Commands) {
 
     inline for (@typeInfo(Commands).Union.fields) |command| {
         if (std.mem.eql(u8, command.name, sub_command)) {
-            const sub_result = parse(args, command.type);
+            const sub_result = parseGeneric(args, command.type);
             return .{
                 .config = @unionInit(Commands, command.name, sub_result.config),
                 .args = sub_result.args,

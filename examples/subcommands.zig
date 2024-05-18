@@ -32,7 +32,7 @@ const Command = union(enum) {
 
 pub fn main() !void {
     var args = std.process.args();
-    _ = args.skip();
+
     const result = arguments.parse(&args, Command);
 
     prettyPrint(result.config, result.args);

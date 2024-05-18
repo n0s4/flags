@@ -36,9 +36,6 @@ pub const max_positional_arguments = 3;
 pub fn main() !void {
     var args = std.process.args();
 
-    // The first argument (program name) will not be skipped automatically.
-    _ = args.next();
-
     const result = arguments.parse(&args, Config);
 
     prettyPrint(
