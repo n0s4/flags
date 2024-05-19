@@ -6,7 +6,7 @@ A command-line argument parser for Zig.
 
 See the [examples](examples/) for basic usage.
 
-Check out the [import guide](https://github.com/n0s4/Arguments/wiki/Importing) to get set up using Arguments in your project.
+Check out the [import guide](https://github.com/n0s4/Arguments/wiki/Import-Guide) to get set up using Arguments in your project.
 
 ## Goals
 - [ ] helpful docs
