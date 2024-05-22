@@ -1,6 +1,6 @@
 .{
     .name = "arguments",
-    .version = "0.1.0",
+    .version = "0.3.0",
 
     // Want to limit these to only the things that really constitute "the library".
     // The hash needn't be updated by some small change to the README.
