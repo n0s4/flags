@@ -4,11 +4,24 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const root = b.path("src/root.zig");
+
     const mod = b.addModule("arguments", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = root,
         .target = target,
         .optimize = optimize,
     });
+
+    const tests_step = b.step("test", "Run tests");
+
+    const tests = b.addTest(.{
+        .root_source_file = root,
+        .target = target,
+    });
+
+    const tests_run = b.addRunArtifact(tests);
+    tests_step.dependOn(&tests_run.step);
+    b.default_step.dependOn(tests_step);
 
     const example_step = b.step("run-example", "Run the specifed example");
     const example_option = b.option(
