@@ -3,28 +3,47 @@ const arguments = @import("arguments");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 const Command = union(enum) {
+    pub const name = "subcommands";
+
     add: struct {
-        force: bool,
-        verbose: bool,
-        all: bool,
+        name: []const u8,
+        pub const switches = .{
+            .name = "n",
+        };
     },
 
-    commit: struct {
+    remove: struct {
+        name: ?[]const u8,
         all: bool,
-        message: []const u8,
+
+        pub const switches = .{
+            .name = "n",
+            .all = "a",
+        };
+
+        pub const descriptions = .{
+            .all = "Remove all items",
+        };
     },
 
     nested: union(enum) {
-        first: struct {
-            target: []const u8,
+        edit: struct {
+            title: ?[]const u8,
+            content: ?[]const u8,
+
+            pub const descriptions = .{
+                .title = "New title",
+                .content = "New content",
+            };
         },
 
-        second: struct {
-            size: enum { small, medium, big } = .big,
+        move: struct {
+            from: []const u8,
+            to: []const u8,
 
-            // Switches can be defined at any level.
             pub const switches = .{
-                .size = 's',
+                .from = 'f',
+                .to = 't',
             };
         },
     },

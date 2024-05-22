@@ -3,6 +3,9 @@ const arguments = @import("arguments");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 const Config = struct {
+    // This field is required for your top-level command, and is used in help messages.
+    pub const name = "example";
+
     // bool fields will be true if their flag (e.g "--force") is passed.
     // Note that you don't need to provide a default value for bools or optionals.
     force: bool,
@@ -17,15 +20,36 @@ const Config = struct {
     power: i32 = 9000,
 
     // restrict choice with enums:
-    use_color: enum { never, auto, always } = .auto,
-    // note that enum variants are detected in kebab-case: "--job scrum-master"
-    job: ?enum { ceo, scrum_master, developer },
+    size: enum {
+        small,
+        medium,
+        large,
 
-    // Optionally, this declaration defines shorthands which can be chained e.g '-fc always'.
-    // Note that this must be marked `pub`.
+        // These will be displayed in the '--help' message.
+        pub const descriptions = .{
+            .small = "The least big",
+            .medium = "Not quite small, not quite big",
+            .large = "The biggest",
+        };
+    } = .medium,
+
+    // This optional declaration defines shorthands which can be chained e.g '-fs large'.
     pub const switches = .{
         .force = 'f',
-        .use_color = 'c',
+        .age = 'a',
+        .power = 'p',
+        .size = 's',
+    };
+
+    // These are used in the '--help' message
+    pub const descriptions = .{
+        .force = "Use the force",
+        .optional = "You don't need this one",
+        .override = "You can change this if you want",
+        .required = "You have to set this!",
+        .age = "How old?",
+        .power = "How strong?",
+        .size = "How big?",
     };
 };
 
