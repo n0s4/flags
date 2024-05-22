@@ -11,8 +11,8 @@ Check out the [import guide](https://github.com/n0s4/Arguments/wiki/Import-Guide
 ## Goals
 - [ ] helpful docs
 - [ ] decent tests
-- [ ] automatic help message generation
-- [ ] subcommands
+- [X] automatic help message generation
+- [X] subcommands
 - Support for parsing different types
   - [ ] floats
   - [ ] arrays for a fixed number of arguments (i.e `coordinate: [2]i32` => --coordinate 4 3)
