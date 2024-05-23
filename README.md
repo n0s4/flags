@@ -1,6 +1,14 @@
 # flags
 
-A command-line argument parser for Zig.
+An effortless command-line argument parser for Zig.
+
+## Features
+
+- Zero allocations.
+- Declaratively define your command as a plain Zig type.
+- Single-function API.
+- Multi-level subcommands.
+- Automatic help message generation at comptime.
 
 ## Getting Started
 
