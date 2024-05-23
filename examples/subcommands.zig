@@ -1,5 +1,5 @@
 const std = @import("std");
-const arguments = @import("arguments");
+const flags = @import("flags");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 const Command = union(enum) {
@@ -52,7 +52,7 @@ const Command = union(enum) {
 pub fn main() !void {
     var args = std.process.args();
 
-    const result = arguments.parse(&args, Command);
+    const result = flags.parse(&args, Command);
 
     prettyPrint(result.config, result.args);
 }

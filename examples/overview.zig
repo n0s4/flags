@@ -1,5 +1,5 @@
 const std = @import("std");
-const arguments = @import("arguments");
+const flags = @import("flags");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 const Config = struct {
@@ -53,17 +53,17 @@ const Config = struct {
     };
 };
 
-// Optionally, you can specify the size of the buffer for positional arguments if you wish to
-// impose a specific limit or you expect more arguments than the default (32).
-pub const max_positional_arguments = 3;
+// Optionally, you can specify the size of the buffer for positional flags if you wish to
+// impose a specific limit or you expect more flags than the default (32).
+pub const max_positional_flags = 3;
 
 pub fn main() !void {
     var args = std.process.args();
 
-    const result = arguments.parse(&args, Config);
+    const result = flags.parse(&args, Config);
 
     prettyPrint(
         result.config, // result, of passed `Config` type
-        result.args, // extra positional arguments
+        result.args, // extra positional flags
     );
 }

@@ -1,5 +1,5 @@
 .{
-    .name = "arguments",
+    .name = "flags",
     .version = "0.3.0",
 
     // Want to limit these to only the things that really constitute "the library".

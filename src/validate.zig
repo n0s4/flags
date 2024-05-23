@@ -1,7 +1,7 @@
 const std = @import("std");
 
 fn compileError(comptime fmt: []const u8, args: anytype) void {
-    @compileError("arguments: " ++ std.fmt.comptimePrint(fmt, args));
+    @compileError("flags: " ++ std.fmt.comptimePrint(fmt, args));
 }
 
 /// Checks whether T is the type of a compile-time string literal.

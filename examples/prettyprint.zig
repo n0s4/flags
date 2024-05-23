@@ -1,5 +1,5 @@
 const std = @import("std");
-const arguments = @import("arguments");
+const flags = @import("flags");
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     const stdout = std.io.getStdOut().writer();

@@ -1,10 +1,10 @@
 const std = @import("std");
-const arguments = @import("arguments");
+const flags = @import("flags");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 pub fn main() void {
     var args = std.process.args();
-    const command = arguments.parse(&args, Git);
+    const command = flags.parse(&args, Git);
 
     prettyPrint(command.config, command.args);
 }

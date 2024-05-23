@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const root = b.path("src/root.zig");
 
-    const mod = b.addModule("arguments", .{
+    const mod = b.addModule("flags", .{
         .root_source_file = root,
         .target = target,
         .optimize = optimize,
@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    example.root_module.addImport("arguments", mod);
+    example.root_module.addImport("flags", mod);
     const run_example = b.addRunArtifact(example);
     if (b.args) |args| run_example.addArgs(args);
     example_step.dependOn(&run_example.step);
