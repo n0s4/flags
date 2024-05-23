@@ -4,7 +4,7 @@ const format = @import("format.zig");
 pub fn helpMessage(comptime Command: type, comptime name: []const u8) []const u8 {
     if (std.meta.fields(Command).len == 0) return "Usage: " ++ name ++ "\n";
     return switch (@typeInfo(Command)) {
-        .Struct => helpOptions(Command, name),
+        .Struct => helpFlags(Command, name),
         .Union => helpCommands(Command, name),
         else => comptime unreachable,
     };
@@ -12,11 +12,11 @@ pub fn helpMessage(comptime Command: type, comptime name: []const u8) []const u8
 
 const indent = "  ";
 
-/// This is used during comptime to collect info about options/commands.
+/// This is used during comptime to collect info about flags/commands.
 /// The `name` and `description` are stored separately then the `render` method is used
 /// to concatenate them with the correct spacing.
 const Description = struct {
-    /// For an option, this is the flag name and the switch, if present.
+    /// For a flag, this is the flag name and the switch, if present.
     /// For a command, this is the command name.
     /// For an enum variant, this is the variant name.
     /// This includes the preceding indentation.
@@ -68,7 +68,7 @@ fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []co
     return help;
 }
 
-fn helpOptions(comptime Options: type, comptime command_name: []const u8) []const u8 {
+fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8 {
     comptime var help: []const u8 = std.fmt.comptimePrint(
     // TODO: More specific usage expression.
         \\Usage: {s} [options]
@@ -80,10 +80,10 @@ fn helpOptions(comptime Options: type, comptime command_name: []const u8) []cons
     comptime var descriptions: []const Description = &.{};
     comptime var max_name_len = Description.help.name.len;
 
-    for (std.meta.fields(Options)) |field| {
+    for (std.meta.fields(Flags)) |field| {
         comptime var name: []const u8 = format.flagName(field);
 
-        if (comptime getSwitchFor(Options, field.name)) |swtch| {
+        if (comptime getSwitchFor(Flags, field.name)) |swtch| {
             name = std.fmt.comptimePrint(
                 "-{c}, {s}",
                 .{ swtch, name },
@@ -96,19 +96,19 @@ fn helpOptions(comptime Options: type, comptime command_name: []const u8) []cons
 
         descriptions = descriptions ++ [_]Description{.{
             .name = name,
-            .description = getDescriptionFor(Options, field.name),
+            .description = getDescriptionFor(Flags, field.name),
         }};
 
-        const OptionType = switch (@typeInfo(field.type)) {
+        const T = switch (@typeInfo(field.type)) {
             .Optional => |optional| optional.child,
             else => field.type,
         };
 
-        if (@typeInfo(OptionType) == .Enum) {
-            for (std.meta.fields(OptionType)) |enum_field| {
+        if (@typeInfo(T) == .Enum) {
+            for (std.meta.fields(T)) |enum_field| {
                 const variant = .{
                     .name = indent ** 2 ++ format.toKebab(enum_field.name),
-                    .description = getDescriptionFor(OptionType, enum_field.name),
+                    .description = getDescriptionFor(T, enum_field.name),
                 };
                 if (variant.name.len > max_name_len) max_name_len = variant.name.len;
                 descriptions = descriptions ++ [_]Description{variant};
@@ -125,11 +125,11 @@ fn helpOptions(comptime Options: type, comptime command_name: []const u8) []cons
     return help;
 }
 
-fn getSwitchFor(comptime Options: type, comptime name: []const u8) ?u8 {
-    if (@hasDecl(Options, "switches") and
-        @hasField(@TypeOf(Options.switches), name))
+fn getSwitchFor(comptime Flags: type, comptime name: []const u8) ?u8 {
+    if (@hasDecl(Flags, "switches") and
+        @hasField(@TypeOf(Flags.switches), name))
     {
-        return @field(Options.switches, name);
+        return @field(Flags.switches, name);
     }
     return null;
 }

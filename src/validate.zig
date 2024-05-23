@@ -26,7 +26,7 @@ pub fn assertValid(comptime Command: type) void {
 
 fn assertValidGeneric(comptime Command: type) void {
     switch (@typeInfo(Command)) {
-        .Struct => assertValidOptions(Command),
+        .Struct => assertValidFlags(Command),
         .Union => assertValidCommands(Command),
         else => compileError("command must be a struct or union type", .{}),
     }
@@ -41,29 +41,29 @@ fn assertValidCommands(comptime Commands: type) void {
     }
 }
 
-fn assertValidOptions(comptime Options: type) void {
-    inline for (std.meta.fields(Options)) |field| {
+fn assertValidFlags(comptime Flags: type) void {
+    inline for (std.meta.fields(Flags)) |field| {
         if (comptime std.mem.eql(u8, "help", field.name)) {
-            compileError("option name 'help' is reserved for showing usage", {});
+            compileError("flag name 'help' is reserved for showing usage", {});
         }
         switch (@typeInfo(field.type)) {
             // Allow bool values only outside of optionals
             .Bool => {},
-            .Optional => |optional| assertValidOption(optional.child, field.name),
-            else => assertValidOption(field.type, field.name),
+            .Optional => |optional| assertValidFlag(optional.child, field.name),
+            else => assertValidFlag(field.type, field.name),
         }
     }
 
-    if (@hasDecl(Options, "switches")) {
-        assertValidSwitches(Options, Options.switches);
+    if (@hasDecl(Flags, "switches")) {
+        assertValidSwitches(Flags, Flags.switches);
     }
 
-    if (@hasDecl(Options, "descriptions")) {
-        assertValidDescriptions(Options, Options.descriptions);
+    if (@hasDecl(Flags, "descriptions")) {
+        assertValidDescriptions(Flags, Flags.descriptions);
     }
 }
 
-fn assertValidSwitches(comptime Config: type, switches: anytype) void {
+fn assertValidSwitches(comptime Flags: type, switches: anytype) void {
     const Switches = @TypeOf(switches);
     if (@typeInfo(Switches) != .Struct) {
         compileError("'switches' is not a struct declaration", .{});
@@ -71,12 +71,12 @@ fn assertValidSwitches(comptime Config: type, switches: anytype) void {
 
     const fields = std.meta.fields(Switches);
     inline for (fields, 0..) |field, i| {
-        if (!@hasField(Config, field.name)) compileError(
-            "switch name not defined in Config: '{s}'",
+        if (!@hasField(Flags, field.name)) compileError(
+            "switch name does not match any field: '{s}'",
             .{field.name},
         );
 
-        const swtch = @field(Config.switches, field.name);
+        const swtch = @field(Flags.switches, field.name);
         if (@TypeOf(swtch) != comptime_int) compileError(
             "switch is not a character: '{s}'",
             .{field.name},
@@ -105,25 +105,25 @@ fn assertValidSwitches(comptime Config: type, switches: anytype) void {
     }
 }
 
-fn assertValidDescriptions(comptime Config: type, descriptions: anytype) void {
+fn assertValidDescriptions(comptime Flags: type, descriptions: anytype) void {
     const Descriptions = @TypeOf(descriptions);
     if (@typeInfo(Descriptions) != .Struct) {
         compileError("'descriptions' is not a struct declaration", {});
     }
     inline for (std.meta.fields(Descriptions)) |field| {
-        if (!@hasField(Config, field.name)) compileError(
+        if (!@hasField(Flags, field.name)) compileError(
             "description name does not match any field: '{s}'",
             .{field.name},
         );
 
-        const desc = @field(Config.descriptions, field.name);
+        const desc = @field(Flags.descriptions, field.name);
         if (comptime !isString(@TypeOf(desc))) {
             compileError("description is not a string: '{s}'", .{field.name});
         }
     }
 }
 
-fn assertValidOption(comptime T: type, comptime field_name: []const u8) void {
+fn assertValidFlag(comptime T: type, comptime field_name: []const u8) void {
     if (T == []const u8) return;
 
     switch (@typeInfo(T)) {
@@ -139,7 +139,7 @@ fn assertValidOption(comptime T: type, comptime field_name: []const u8) void {
     }
 
     compileError(
-        "bad Config field type '{s}': {s}",
+        "bad flag type '{s}': {s}",
         .{ field_name, @typeName(T) },
     );
 }

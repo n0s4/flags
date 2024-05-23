@@ -2,7 +2,21 @@ const std = @import("std");
 const flags = @import("flags");
 const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
-const Config = struct {
+// Optionally, you can specify the size of the buffer for positional arguments if you wish to
+// impose a specific limit or you expect more than the default (32).
+pub const max_positional_flags = 3;
+
+pub fn main() !void {
+    var args = std.process.args();
+    const result = flags.parse(&args, Command);
+
+    prettyPrint(
+        result.flags, // result, has type of `Command`
+        result.args, // extra positional arguments
+    );
+}
+
+const Command = struct {
     // This field is required for your top-level command, and is used in help messages.
     pub const name = "example";
 
@@ -52,18 +66,3 @@ const Config = struct {
         .size = "How big?",
     };
 };
-
-// Optionally, you can specify the size of the buffer for positional flags if you wish to
-// impose a specific limit or you expect more flags than the default (32).
-pub const max_positional_flags = 3;
-
-pub fn main() !void {
-    var args = std.process.args();
-
-    const result = flags.parse(&args, Config);
-
-    prettyPrint(
-        result.config, // result, of passed `Config` type
-        result.args, // extra positional flags
-    );
-}

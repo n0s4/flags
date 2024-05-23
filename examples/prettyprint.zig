@@ -1,5 +1,4 @@
 const std = @import("std");
-const flags = @import("flags");
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     const stdout = std.io.getStdOut().writer();
@@ -7,10 +6,10 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// Utility for pretty printing a parse result.
-pub fn prettyPrint(config: anytype, args: []const []const u8) void {
-    switch (@typeInfo(@TypeOf(config))) {
-        .Struct => printOptions(config),
-        .Union => printCommand(config),
+pub fn prettyPrint(command: anytype, args: []const []const u8) void {
+    switch (@typeInfo(@TypeOf(command))) {
+        .Struct => printFlags(command),
+        .Union => printCommand(command),
         else => comptime unreachable,
     }
 
@@ -28,7 +27,7 @@ fn printCommand(command: anytype) void {
             switch (@typeInfo(field.type)) {
                 .Struct => {
                     print("\n", .{});
-                    printOptions(@field(command, field.name));
+                    printFlags(@field(command, field.name));
                 },
                 .Union => printCommand(@field(command, field.name)),
                 else => unreachable,
@@ -37,10 +36,10 @@ fn printCommand(command: anytype) void {
     }
 }
 
-fn printOptions(options: anytype) void {
-    inline for (std.meta.fields(@TypeOf(options))) |field| {
+fn printFlags(flags: anytype) void {
+    inline for (std.meta.fields(@TypeOf(flags))) |field| {
         print("{s}: ", .{field.name});
-        const value = @field(options, field.name);
+        const value = @field(flags, field.name);
         switch (field.type) {
             []const u8 => print("{s}", .{value}),
             ?[]const u8 => print("{?s}", .{value}),

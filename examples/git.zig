@@ -6,7 +6,7 @@ pub fn main() void {
     var args = std.process.args();
     const command = flags.parse(&args, Git);
 
-    prettyPrint(command.config, command.args);
+    prettyPrint(command.flags, command.args);
 }
 
 /// A very stripped-down model of the git CLI.

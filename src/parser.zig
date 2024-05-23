@@ -6,11 +6,11 @@ const format = @import("format.zig");
 
 const ArgIterator = std.process.ArgIterator;
 
-/// Combines `Config` with an `args` field which stores positional arguments.
-pub fn Result(comptime Config: type) type {
+/// Combines `Command` with an `args` field which stores positional arguments.
+pub fn Result(comptime Command: type) type {
     return struct {
-        config: Config,
-        /// Stores extra positional arguments not linked to any flag or option.
+        flags: Command,
+        /// Stores extra positional arguments not linked to any flag.
         args: []const []const u8,
     };
 }
@@ -22,7 +22,7 @@ pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-pub fn printHelp(comptime Command: type, comptime command_name: []const u8) void {
+fn printHelp(comptime Command: type, comptime command_name: []const u8) void {
     const stdout = std.io.getStdOut().writer();
     stdout.writeAll(comptime help.helpMessage(Command, command_name)) catch |err| {
         fatal("could not write help to stdout: {!}", .{err});
@@ -49,8 +49,8 @@ pub fn parse(args: *ArgIterator, comptime Command: type) Result(Command) {
 fn parseGeneric(args: *ArgIterator, comptime Command: type, comptime name: []const u8) Result(Command) {
     return switch (@typeInfo(Command)) {
         .Union => parseCommands(args, Command, name),
-        .Struct => parseOptions(args, Command, name),
-        else => @compileError("Command must be a struct or union type."),
+        .Struct => parseFlags(args, Command, name),
+        else => comptime unreachable,
     };
 }
 
@@ -65,7 +65,7 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
         if (std.mem.eql(u8, command.name, arg)) {
             const sub_result = parseGeneric(args, command.type, command_name ++ " " ++ command.name);
             return .{
-                .config = @unionInit(Commands, command.name, sub_result.config),
+                .flags = @unionInit(Commands, command.name, sub_result.flags),
                 .args = sub_result.args,
             };
         }
@@ -74,9 +74,9 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
     fatal("unrecognized subcommand: '{s}'", .{arg});
 }
 
-fn parseOptions(args: *ArgIterator, comptime Options: type, comptime command_name: []const u8) Result(Options) {
-    var options: Options = undefined;
-    var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Options), bool, false) = .{};
+fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: []const u8) Result(Flags) {
+    var flags: Flags = undefined;
+    var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
 
     var positional_count: u32 = 0;
 
@@ -92,16 +92,16 @@ fn parseOptions(args: *ArgIterator, comptime Options: type, comptime command_nam
         }
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            printHelp(Options, command_name);
+            printHelp(Flags, command_name);
         }
 
         if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
         if (arg[1] == '-') {
-            inline for (std.meta.fields(Options)) |field| {
+            inline for (std.meta.fields(Flags)) |field| {
                 if (std.mem.eql(u8, arg, format.flagName(field))) {
                     @field(passed, field.name) = true;
 
-                    @field(options, field.name) = parseArg(field.type, args, format.flagName(field));
+                    @field(flags, field.name) = parseArg(field.type, args, format.flagName(field));
 
                     continue :next_arg;
                 }
@@ -109,19 +109,19 @@ fn parseOptions(args: *ArgIterator, comptime Options: type, comptime command_nam
             fatal("unrecognized flag: {s}", .{arg});
         }
 
-        if (@hasDecl(Options, "switches")) {
+        if (@hasDecl(Flags, "switches")) {
             next_switch: for (arg[1..], 1..) |char, i| {
-                inline for (std.meta.fields(@TypeOf(Options.switches))) |switch_field| {
-                    if (char == @field(Options.switches, switch_field.name)) {
+                inline for (std.meta.fields(@TypeOf(Flags.switches))) |switch_field| {
+                    if (char == @field(Flags.switches, switch_field.name)) {
                         @field(passed, switch_field.name) = true;
 
-                        const FieldType = @TypeOf(@field(options, switch_field.name));
+                        const FieldType = @TypeOf(@field(flags, switch_field.name));
                         // Removing this check would allow formats like "-abc value-for-a value-for-b value-for-c"
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
                         const value = parseArg(FieldType, args, &.{ '-', char });
-                        @field(options, switch_field.name) = value;
+                        @field(flags, switch_field.name) = value;
 
                         continue :next_switch;
                     }
@@ -133,13 +133,13 @@ fn parseOptions(args: *ArgIterator, comptime Options: type, comptime command_nam
         }
     }
 
-    inline for (std.meta.fields(Options)) |field| {
+    inline for (std.meta.fields(Flags)) |field| {
         if (@field(passed, field.name) == false) {
             if (field.default_value) |default_opaque| {
                 const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
-                @field(options, field.name) = default;
+                @field(flags, field.name) = default;
             } else {
-                @field(options, field.name) = switch (@typeInfo(field.type)) {
+                @field(flags, field.name) = switch (@typeInfo(field.type)) {
                     .Optional => null,
                     .Bool => false,
                     else => fatal("missing required flag: '{s}'", .{format.flagName(field)}),
@@ -148,8 +148,8 @@ fn parseOptions(args: *ArgIterator, comptime Options: type, comptime command_nam
         }
     }
 
-    return Result(Options){
-        .config = options,
+    return Result(Flags){
+        .flags = flags,
         .args = positionals[0..positional_count],
     };
 }
