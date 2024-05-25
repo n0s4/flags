@@ -12,6 +12,11 @@ pub fn main() !void {
 const Command = union(enum) {
     pub const name = "subcommands";
 
+    pub const help =
+        \\Enables manipulation of 'items'.
+        \\You can create, delete, move and edit items.
+    ;
+
     pub const descriptions = .{
         .add = "Create a new item",
         .remove = "Delete an item",

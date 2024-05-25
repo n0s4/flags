@@ -25,6 +25,16 @@ pub fn assertValid(comptime Command: type) void {
 }
 
 fn assertValidGeneric(comptime Command: type) void {
+    if (@hasDecl(Command, "descriptions")) {
+        assertValidDescriptions(Command, Command.descriptions);
+    }
+
+    if (@hasDecl(Command, "help")) {
+        if (!isString(@TypeOf(Command.help))) {
+            compileError("'help' declaration is not a string", .{});
+        }
+    }
+
     switch (@typeInfo(Command)) {
         .Struct => assertValidFlags(Command),
         .Union => assertValidCommands(Command),
@@ -33,9 +43,6 @@ fn assertValidGeneric(comptime Command: type) void {
 }
 
 fn assertValidCommands(comptime Commands: type) void {
-    if (@hasDecl(Commands, "descriptions")) {
-        assertValidDescriptions(Commands, Commands.descriptions);
-    }
     inline for (std.meta.fields(Commands)) |field| {
         assertValidGeneric(field.type);
     }
@@ -56,10 +63,6 @@ fn assertValidFlags(comptime Flags: type) void {
 
     if (@hasDecl(Flags, "switches")) {
         assertValidSwitches(Flags, Flags.switches);
-    }
-
-    if (@hasDecl(Flags, "descriptions")) {
-        assertValidDescriptions(Flags, Flags.descriptions);
     }
 }
 
@@ -105,18 +108,18 @@ fn assertValidSwitches(comptime Flags: type, switches: anytype) void {
     }
 }
 
-fn assertValidDescriptions(comptime Flags: type, descriptions: anytype) void {
+fn assertValidDescriptions(comptime Command: type, descriptions: anytype) void {
     const Descriptions = @TypeOf(descriptions);
     if (@typeInfo(Descriptions) != .Struct) {
         compileError("'descriptions' is not a struct declaration", {});
     }
     inline for (std.meta.fields(Descriptions)) |field| {
-        if (!@hasField(Flags, field.name)) compileError(
+        if (!@hasField(Command, field.name)) compileError(
             "description name does not match any field: '{s}'",
             .{field.name},
         );
 
-        const desc = @field(Flags.descriptions, field.name);
+        const desc = @field(Command.descriptions, field.name);
         if (comptime !isString(@TypeOf(desc))) {
             compileError("description is not a string: '{s}'", .{field.name});
         }

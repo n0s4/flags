@@ -40,12 +40,16 @@ const Description = struct {
 
 fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []const u8 {
     comptime var help: []const u8 = std.fmt.comptimePrint(
-    // TODO: More specific usage expression.
-        \\Usage: {s} [command]
-        \\
-        \\Commands:
-        \\
-    , .{command_name});
+        // TODO: More specific usage expression.
+        "Usage: {s} [command]\n",
+        .{command_name},
+    );
+
+    if (@hasDecl(Commands, "help")) {
+        help = help ++ "\n" ++ Commands.help ++ "\n";
+    }
+
+    help = help ++ "\nCommands:\n";
 
     comptime var descriptions: []const Description = &.{};
     comptime var max_name_len = Description.help.name.len;
@@ -70,12 +74,16 @@ fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []co
 
 fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8 {
     comptime var help: []const u8 = std.fmt.comptimePrint(
-    // TODO: More specific usage expression.
-        \\Usage: {s} [options]
-        \\
-        \\Options:
-        \\
-    , .{command_name});
+        // TODO: More specific usage expression.
+        "Usage: {s} [options]\n",
+        .{command_name},
+    );
+
+    if (@hasDecl(Flags, "help")) {
+        help = help ++ "\n" ++ Flags.help ++ "\n";
+    }
+
+    help = help ++ "\nOptions:\n";
 
     comptime var descriptions: []const Description = &.{};
     comptime var max_name_len = Description.help.name.len;
@@ -146,6 +154,9 @@ fn getDescriptionFor(comptime Command: type, comptime name: []const u8) ?[]const
 
 test helpMessage {
     const Command = struct {
+        pub const help =
+            \\This command is for testing purposes only!
+        ;
         force: bool,
         target: ?[]const u8,
         choice: enum {
@@ -174,6 +185,8 @@ test helpMessage {
 
     try std.testing.expectEqualStrings(
         \\Usage: test [options]
+        \\
+        \\This command is for testing purposes only!
         \\
         \\Options:
         \\  -f, --force  Do it more forcefully

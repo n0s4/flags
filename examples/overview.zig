@@ -20,6 +20,13 @@ const Command = struct {
     // This field is required for your top-level command, and is used in help messages.
     pub const name = "example";
 
+    // You can provide a description of your command which will be displayed between
+    // the auto-generated usage and command/option descriptions.
+    pub const help =
+        \\This is a dummy command for testing purposes.
+        \\There are a bunch of options for demonstration purposes.
+    ;
+
     // bool fields will be true if their flag (e.g "--force") is passed.
     // Note that you don't need to provide a default value for bools or optionals.
     force: bool,
