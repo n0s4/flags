@@ -25,13 +25,19 @@ pub fn assertValid(comptime Command: type) void {
 }
 
 fn assertValidGeneric(comptime Command: type) void {
-    if (@hasDecl(Command, "descriptions")) {
-        assertValidDescriptions(Command, Command.descriptions);
-    }
+    if (@hasDecl(Command, "full_help")) {
+        if (!isString(@TypeOf(Command.full_help))) {
+            compileError("'full_help' declaration is not a string", .{});
+        }
+    } else {
+        if (@hasDecl(Command, "descriptions")) {
+            assertValidDescriptions(Command, Command.descriptions);
+        }
 
-    if (@hasDecl(Command, "help")) {
-        if (!isString(@TypeOf(Command.help))) {
-            compileError("'help' declaration is not a string", .{});
+        if (@hasDecl(Command, "help")) {
+            if (!isString(@TypeOf(Command.help))) {
+                compileError("'help' declaration is not a string", .{});
+            }
         }
     }
 

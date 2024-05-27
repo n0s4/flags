@@ -62,7 +62,7 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
     }
 
     inline for (@typeInfo(Commands).Union.fields) |command| {
-        if (std.mem.eql(u8, command.name, arg)) {
+        if (std.mem.eql(u8, comptime format.toKebab(command.name), arg)) {
             const sub_result = parseGeneric(args, command.type, command_name ++ " " ++ command.name);
             return .{
                 .flags = @unionInit(Commands, command.name, sub_result.flags),
@@ -71,7 +71,7 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
         }
     }
 
-    fatal("unrecognized subcommand: '{s}'", .{arg});
+    fatal("unrecognized subcommand: '{s}'. see {s} --help", .{ arg, command_name });
 }
 
 fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: []const u8) Result(Flags) {

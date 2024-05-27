@@ -2,6 +2,10 @@ const std = @import("std");
 const format = @import("format.zig");
 
 pub fn helpMessage(comptime Command: type, comptime name: []const u8) []const u8 {
+    if (@hasDecl(Command, "full_help")) {
+        return Command.full_help;
+    }
+
     if (std.meta.fields(Command).len == 0) return "Usage: " ++ name ++ "\n";
     return switch (@typeInfo(Command)) {
         .Struct => helpFlags(Command, name),
@@ -55,7 +59,7 @@ fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []co
     comptime var max_name_len = Description.help.name.len;
 
     for (std.meta.fields(Commands)) |command| {
-        const name = indent ++ command.name;
+        const name = indent ++ format.toKebab(command.name);
         if (name.len > max_name_len) max_name_len = name.len;
         descriptions = descriptions ++ [_]Description{.{
             .name = name,
