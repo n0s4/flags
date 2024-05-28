@@ -91,6 +91,16 @@ fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: [
             continue :next_arg;
         }
 
+        if (std.mem.eql(u8, arg, "--")) {
+            // Blindly treat the remaining flags as positional arguments
+            while (args.next()) |pos| {
+                if (positional_count == max_positional_args) fatal("too many arguments", .{});
+                positionals[positional_count] = pos;
+                positional_count += 1;
+            }
+            break;
+        }
+
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp(Flags, command_name);
         }
