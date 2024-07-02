@@ -16,7 +16,7 @@ fn isString(comptime T: type) bool {
 
 pub fn assertValid(comptime Command: type) void {
     if (!@hasDecl(Command, "name")) {
-        compileError("top-level command does not declare a name", {});
+        compileError("top-level command does not declare a name", .{});
     }
     if (comptime !isString(@TypeOf(Command.name))) {
         compileError("'name' declaration is not a string", .{});
@@ -57,7 +57,7 @@ fn assertValidCommands(comptime Commands: type) void {
 fn assertValidFlags(comptime Flags: type) void {
     inline for (std.meta.fields(Flags)) |field| {
         if (comptime std.mem.eql(u8, "help", field.name)) {
-            compileError("flag name 'help' is reserved for showing usage", {});
+            compileError("flag name 'help' is reserved for showing usage", .{});
         }
         switch (@typeInfo(field.type)) {
             // Allow bool values only outside of optionals
@@ -117,7 +117,7 @@ fn assertValidSwitches(comptime Flags: type, switches: anytype) void {
 fn assertValidDescriptions(comptime Command: type, descriptions: anytype) void {
     const Descriptions = @TypeOf(descriptions);
     if (@typeInfo(Descriptions) != .Struct) {
-        compileError("'descriptions' is not a struct declaration", {});
+        compileError("'descriptions' is not a struct declaration", .{});
     }
     inline for (std.meta.fields(Descriptions)) |field| {
         if (!@hasField(Command, field.name)) compileError(
