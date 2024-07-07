@@ -143,20 +143,18 @@ fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: [
         }
     }
 
-    inline for (std.meta.fields(Flags)) |field| {
-        if (@field(passed, field.name) == false) {
-            if (field.default_value) |default_opaque| {
-                const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
-                @field(flags, field.name) = default;
-            } else {
-                @field(flags, field.name) = switch (@typeInfo(field.type)) {
-                    .Optional => null,
-                    .Bool => false,
-                    else => fatal("missing required flag: '{s}'", .{format.flagName(field)}),
-                };
-            }
+    inline for (std.meta.fields(Flags)) |field| if (!@field(passed, field.name)) {
+        if (field.default_value) |default_opaque| {
+            const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
+            @field(flags, field.name) = default;
+        } else {
+            @field(flags, field.name) = switch (@typeInfo(field.type)) {
+                .Optional => null,
+                .Bool => false,
+                else => fatal("missing required flag: '{s}'", .{format.flagName(field)}),
+            };
         }
-    }
+    };
 
     return Result(Flags){
         .flags = flags,

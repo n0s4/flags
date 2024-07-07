@@ -4,40 +4,40 @@ fn compileError(comptime fmt: []const u8, args: anytype) void {
     @compileError("flags: " ++ std.fmt.comptimePrint(fmt, args));
 }
 
-/// Checks whether T is the type of a compile-time string literal.
-/// String literals have the type *const [len:0]u8
+/// Checks whether T is the type of a string literal or a []const u8.
 fn isString(comptime T: type) bool {
-    const info = @typeInfo(T);
-    if (info != .Pointer) return false;
-    const child = @typeInfo(info.Pointer.child);
-    return child == .Array and
-        child.Array.child == u8;
+    if (T == []const u8) return true;
+
+    // String literals have the type *const [len:0]u8
+    switch (@typeInfo(T)) {
+        .Pointer => |p| {
+            const child = @typeInfo(p.child);
+            return p.is_const and
+                child == .Array and
+                child.Array.child == u8;
+        },
+        else => return false,
+    }
 }
 
 pub fn assertValid(comptime Command: type) void {
-    if (!@hasDecl(Command, "name")) {
-        compileError("top-level command does not declare a name", .{});
-    }
-    if (comptime !isString(@TypeOf(Command.name))) {
-        compileError("'name' declaration is not a string", .{});
-    }
+    if (!@hasDecl(Command, "name")) compileError("top-level command does not have a 'name'", .{});
+    if (!isString(@TypeOf(Command.name))) compileError("'name' is not a string", .{});
+
     assertValidGeneric(Command);
 }
 
 fn assertValidGeneric(comptime Command: type) void {
     if (@hasDecl(Command, "full_help")) {
         if (!isString(@TypeOf(Command.full_help))) {
-            compileError("'full_help' declaration is not a string", .{});
+            compileError("'full_help' is not a string", .{});
         }
     } else {
+        if (@hasDecl(Command, "help") and !isString(@TypeOf(Command.help))) {
+            compileError("'help' is not a string", .{});
+        }
         if (@hasDecl(Command, "descriptions")) {
             assertValidDescriptions(Command, Command.descriptions);
-        }
-
-        if (@hasDecl(Command, "help")) {
-            if (!isString(@TypeOf(Command.help))) {
-                compileError("'help' declaration is not a string", .{});
-            }
         }
     }
 
@@ -49,15 +49,13 @@ fn assertValidGeneric(comptime Command: type) void {
 }
 
 fn assertValidCommands(comptime Commands: type) void {
-    inline for (std.meta.fields(Commands)) |field| {
-        assertValidGeneric(field.type);
-    }
+    inline for (std.meta.fields(Commands)) |field| assertValidGeneric(field.type);
 }
 
 fn assertValidFlags(comptime Flags: type) void {
     inline for (std.meta.fields(Flags)) |field| {
-        if (comptime std.mem.eql(u8, "help", field.name)) {
-            compileError("flag name 'help' is reserved for showing usage", .{});
+        if (std.mem.eql(u8, "help", field.name)) {
+            compileError("invalid field name: 'help' is reserved for showing usage", .{});
         }
         switch (@typeInfo(field.type)) {
             // Allow bool values only outside of optionals
@@ -93,9 +91,7 @@ fn assertValidSwitches(comptime Flags: type, switches: anytype) void {
 
         switch (swtch) {
             'a'...'z', 'A'...'Z' => {
-                if (swtch == 'h') {
-                    compileError("switch '-h' is reserved for showing usage", .{});
-                }
+                if (swtch == 'h') compileError("switch '-h' is reserved for showing usage", .{});
             },
             else => compileError(
                 "switch is not a letter: '{c}'",
@@ -126,7 +122,7 @@ fn assertValidDescriptions(comptime Command: type, descriptions: anytype) void {
         );
 
         const desc = @field(Command.descriptions, field.name);
-        if (comptime !isString(@TypeOf(desc))) {
+        if (!isString(@TypeOf(desc))) {
             compileError("description is not a string: '{s}'", .{field.name});
         }
     }
@@ -138,9 +134,8 @@ fn assertValidFlag(comptime T: type, comptime field_name: []const u8) void {
     switch (@typeInfo(T)) {
         .Int => return,
         .Enum => |e| {
-            if (@hasDecl(T, "descriptions")) {
-                assertValidDescriptions(T, T.descriptions);
-            }
+            if (@hasDecl(T, "descriptions")) assertValidDescriptions(T, T.descriptions);
+
             if (e.is_exhaustive) return;
         },
 
