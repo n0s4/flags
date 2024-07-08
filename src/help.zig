@@ -217,7 +217,7 @@ test helpMessage {
         \\Usage: weapons [command]
         \\
         \\Commands:
-        \\  make_a_big_explosion It's big
+        \\  make-a-big-explosion It's big
         \\  -h, --help           Show this help and exit
         \\
     , comptime helpMessage(Commands, "weapons"));
