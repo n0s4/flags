@@ -1,16 +1,24 @@
 const std = @import("std");
 const flags = @import("flags");
-const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
-pub fn main() void {
-    var args = std.process.args();
-    const command = flags.parse(&args, Git);
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    prettyPrint(command.flags, command.args);
+    var args = try std.process.argsWithAllocator(gpa.allocator());
+    defer args.deinit();
+
+    const command = flags.parse(&args, GitCli, .{});
+
+    try std.json.stringify(
+        command,
+        .{ .whitespace = .indent_2 },
+        std.io.getStdOut().writer(),
+    );
 }
 
 /// A very stripped-down model of the git CLI.
-const Git = union(enum) {
+const GitCli = union(enum) {
     pub const name = "git";
 
     init: Init,

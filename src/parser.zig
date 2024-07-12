@@ -1,19 +1,10 @@
 const std = @import("std");
-const root = @import("root");
 const validate = @import("validate.zig");
 const help = @import("help.zig");
 const format = @import("format.zig");
 
 const ArgIterator = std.process.ArgIterator;
-
-/// Combines `Command` with an `args` field which stores positional arguments.
-pub fn Result(comptime Command: type) type {
-    return struct {
-        flags: Command,
-        /// Stores extra positional arguments not linked to any flag.
-        args: []const []const u8,
-    };
-}
+const Allocator = std.mem.Allocator;
 
 /// Prints the formatted error message to stderr and exits with status code 1.
 pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
@@ -22,39 +13,104 @@ pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-fn printHelp(comptime Command: type, comptime command_name: []const u8) void {
-    const stdout = std.io.getStdOut().writer();
-    stdout.writeAll(comptime help.helpMessage(Command, command_name)) catch |err| {
+fn printHelp(comptime Command: type, comptime command_name: []const u8) noreturn {
+    const message = comptime help.helpMessage(Command, command_name);
+
+    std.io.getStdOut().writeAll(message) catch |err| {
         fatal("could not write help to stdout: {!}", .{err});
     };
 
     std.process.exit(0);
 }
 
-const default_max_positionals = 32;
-const max_positional_args: comptime_int = if (@hasDecl(root, "max_positional_arguments"))
-    root.max_positional_arguments
-else
-    default_max_positionals;
-// This must be global to guarantee a static lifetime, otherwise allocation would be needed at
-// runtime to store positional arguments.
-var positionals: [max_positional_args][]const u8 = undefined;
+const PositionalList = struct {
+    buffer: std.ArrayListUnmanaged([]const u8),
 
-pub fn parse(args: *ArgIterator, comptime Command: type) Result(Command) {
-    comptime validate.assertValid(Command);
-    std.debug.assert(args.skip());
-    return parseGeneric(args, Command, Command.name);
+    pub fn init(buffer: [][]const u8) PositionalList {
+        return .{
+            .buffer = std.ArrayListUnmanaged([]const u8).initBuffer(buffer),
+        };
+    }
+
+    pub fn append(self: *PositionalList, positional: []const u8) Allocator.Error!void {
+        if (self.buffer.items.len >= self.buffer.capacity) {
+            return Allocator.Error.OutOfMemory;
+        }
+        self.buffer.appendAssumeCapacity(positional);
+    }
+};
+
+pub const ParseOptions = struct {
+    /// The first argument is almost always the executable name used to run the program.
+    skip_first_arg: bool = true,
+
+    /// Give useful compile errors if your `Command` type is invalid.
+    ///
+    /// Only disable if you don't need help and want to save the compiler from unnecessary work.
+    validate: bool = true,
+};
+
+/// Combines `Command` with an `args` field which stores positional arguments.
+fn Result(comptime Command: type) type {
+    return struct {
+        flags: Command,
+        /// Stores extra positional arguments not linked to any flag.
+        args: []const []const u8,
+    };
 }
 
-fn parseGeneric(args: *ArgIterator, comptime Command: type, comptime name: []const u8) Result(Command) {
+/// This does not allow any positional arguments to be passed.
+///
+/// If you need to take positional arguments, use `parseWithBuffer`.
+pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) Command {
+    // Using an empty buffer means that any positional argument will case an error.
+    var empty = [0][]const u8{};
+    const result = parseWithBuffer(&empty, args, Command, options) catch {
+        fatal("unexpected stray argument", .{});
+    };
+
+    return result.flags;
+}
+
+/// Uses a fixed buffer to store positional/trailing arguments.
+/// Fails if the number of positional arguments passed cannot fit in the buffer.
+pub fn parseWithBuffer(
+    positional_args_buf: [][]const u8,
+    args: *ArgIterator,
+    comptime Command: type,
+    comptime options: ParseOptions,
+) Allocator.Error!Result(Command) {
+    if (options.validate) {
+        comptime validate.assertValid(Command);
+    }
+    if (options.skip_first_arg) {
+        if (!args.skip()) fatal("expected at least 1 argument", .{});
+    }
+
+    var positionals = PositionalList.init(positional_args_buf);
+    return parseGeneric(args, &positionals, Command, Command.name);
+}
+
+/// The "main" parsing function.
+fn parseGeneric(
+    args: *ArgIterator,
+    positionals: *PositionalList,
+    comptime Command: type,
+    comptime command_name: []const u8,
+) Allocator.Error!Result(Command) {
     return switch (@typeInfo(Command)) {
-        .Union => parseCommands(args, Command, name),
-        .Struct => parseFlags(args, Command, name),
+        .Union => parseCommands(args, positionals, Command, command_name),
+        .Struct => parseFlags(args, positionals, Command, command_name),
         else => comptime unreachable,
     };
 }
 
-fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_name: []const u8) Result(Commands) {
+fn parseCommands(
+    args: *ArgIterator,
+    positionals: *PositionalList,
+    comptime Commands: type,
+    comptime command_name: []const u8,
+) Allocator.Error!Result(Commands) {
     const arg = args.next() orelse fatal("expected subcommand", .{});
 
     if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
@@ -63,7 +119,13 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
 
     inline for (@typeInfo(Commands).Union.fields) |command| {
         if (std.mem.eql(u8, comptime format.toKebab(command.name), arg)) {
-            const sub_result = parseGeneric(args, command.type, command_name ++ " " ++ command.name);
+            const sub_result = try parseGeneric(
+                args,
+                positionals,
+                command.type,
+                command_name ++ " " ++ command.name,
+            );
+
             return .{
                 .flags = @unionInit(Commands, command.name, sub_result.flags),
                 .args = sub_result.args,
@@ -74,29 +136,29 @@ fn parseCommands(args: *ArgIterator, comptime Commands: type, comptime command_n
     fatal("unrecognized subcommand: '{s}'. see {s} --help", .{ arg, command_name });
 }
 
-fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: []const u8) Result(Flags) {
+fn parseFlags(
+    args: *ArgIterator,
+    positionals: *PositionalList,
+    comptime Flags: type,
+    comptime command_name: []const u8,
+) Allocator.Error!Result(Flags) {
     var flags: Flags = undefined;
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
-
-    var positional_count: u32 = 0;
 
     next_arg: while (args.next()) |arg| {
         if (arg.len == 0) fatal("empty argument", .{});
 
         if (arg[0] != '-') {
-            if (positional_count == max_positional_args) fatal("too many arguments", .{});
-            positionals[positional_count] = arg;
-            positional_count += 1;
-
+            try positionals.append(arg);
             continue :next_arg;
         }
 
+        if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
+
         if (std.mem.eql(u8, arg, "--")) {
             // Blindly treat the remaining flags as positional arguments
-            while (args.next()) |pos| {
-                if (positional_count == max_positional_args) fatal("too many arguments", .{});
-                positionals[positional_count] = pos;
-                positional_count += 1;
+            while (args.next()) |positional| {
+                try positionals.append(positional);
             }
             break;
         }
@@ -105,7 +167,6 @@ fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: [
             printHelp(Flags, command_name);
         }
 
-        if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
         if (arg[1] == '-') {
             inline for (std.meta.fields(Flags)) |field| {
                 if (std.mem.eql(u8, arg, format.flagName(field))) {
@@ -126,7 +187,8 @@ fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: [
                         @field(passed, switch_field.name) = true;
 
                         const FieldType = @TypeOf(@field(flags, switch_field.name));
-                        // Removing this check would allow formats like "-abc value-for-a value-for-b value-for-c"
+                        // Removing this check would allow formats like:
+                        // `$ <cmd> -abc value-for-a value-for-b value-for-c`
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
@@ -158,7 +220,7 @@ fn parseFlags(args: *ArgIterator, comptime Flags: type, comptime command_name: [
 
     return Result(Flags){
         .flags = flags,
-        .args = positionals[0..positional_count],
+        .args = positionals.buffer.items,
     };
 }
 

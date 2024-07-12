@@ -1,12 +1,20 @@
 const std = @import("std");
 const flags = @import("flags");
-const prettyPrint = @import("prettyprint.zig").prettyPrint;
 
 pub fn main() !void {
-    var args = std.process.args();
-    const result = flags.parse(&args, Command);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    prettyPrint(result.flags, result.args);
+    var args = try std.process.argsWithAllocator(gpa.allocator());
+    defer args.deinit();
+
+    const command = flags.parse(&args, Command, .{});
+
+    try std.json.stringify(
+        command,
+        .{ .whitespace = .indent_2 },
+        std.io.getStdOut().writer(),
+    );
 }
 
 const Command = union(enum) {

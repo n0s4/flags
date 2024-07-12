@@ -1,22 +1,23 @@
 const std = @import("std");
 const flags = @import("flags");
-const prettyPrint = @import("prettyprint.zig").prettyPrint;
-
-// Optionally, you can specify the size of the buffer for positional arguments if you wish to
-// impose a specific limit or you expect more than the default (32).
-pub const max_positional_flags = 3;
 
 pub fn main() !void {
-    var args = std.process.args();
-    const result = flags.parse(&args, Command);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    prettyPrint(
-        result.flags, // result, has type of `Command`
-        result.args, // extra positional arguments
+    var args = try std.process.argsWithAllocator(gpa.allocator());
+    defer args.deinit();
+
+    const result = flags.parse(&args, Flags, .{});
+
+    try std.json.stringify(
+        result,
+        .{ .whitespace = .indent_2 },
+        std.io.getStdOut().writer(),
     );
 }
 
-const Command = struct {
+const Flags = struct {
     // This field is required for your top-level command, and is used in help messages.
     pub const name = "example";
 
