@@ -18,52 +18,17 @@ pub fn main() !void {
 }
 
 const Flags = struct {
-    // This field is required for your top-level command, and is used in help messages.
+    // These declarations are for use in the "--help" message.
+    // They are all optional apart from `name`, which should be the name of your executable.
     pub const name = "example";
 
-    // You can provide a description of your command which will be displayed between
-    // the auto-generated usage and command/option descriptions.
+    // Description of the program.
     pub const help =
         \\This is a dummy command for testing purposes.
         \\There are a bunch of options for demonstration purposes.
     ;
 
-    // bool fields will be true if their flag (e.g "--force") is passed.
-    // Note that you don't need to provide a default value for bools or optionals.
-    force: bool,
-
-    // All other field types will either be optional, provide a default value, or be required.
-    optional: ?[]const u8, // this is set to null if this is not passed
-    override: []const u8 = "defaulty",
-    required: []const u8, // an error is caused if this is not passed
-
-    // All int types are parsed automatically, with specific runtime errors if the value passed is invalid:
-    age: ?u8,
-    power: i32 = 9000,
-
-    // restrict choice with enums:
-    size: enum {
-        small,
-        medium,
-        large,
-
-        // These will be displayed in the '--help' message.
-        pub const descriptions = .{
-            .small = "The least big",
-            .medium = "Not quite small, not quite big",
-            .large = "The biggest",
-        };
-    } = .medium,
-
-    // This optional declaration defines shorthands which can be chained e.g '-fs large'.
-    pub const switches = .{
-        .force = 'f',
-        .age = 'a',
-        .power = 'p',
-        .size = 's',
-    };
-
-    // These are used in the '--help' message
+    // Description of some or all of the flags (must match field names in the struct).
     pub const descriptions = .{
         .force = "Use the force",
         .optional = "You don't need this one",
@@ -72,5 +37,37 @@ const Flags = struct {
         .age = "How old?",
         .power = "How strong?",
         .size = "How big?",
+    };
+
+    force: bool, // Set to `true` only if '--force' is passed.
+
+    optional: ?[]const u8, // Set to null if not passed.
+    override: []const u8 = "defaulty", // "defaulty" if not passed.
+    required: []const u8, // fatal error if not passed.
+
+    // Integer types are parsed automatically with specific error messages for bad input.
+    age: ?u8,
+    power: i32 = 9000,
+
+    // Restrict choice with enums:
+    size: enum {
+        small,
+        medium,
+        large,
+
+        // Displayed in the '--help' message.
+        pub const descriptions = .{
+            .small = "The least big",
+            .medium = "Not quite small, not quite big",
+            .large = "The biggest",
+        };
+    } = .medium,
+
+    // Optional declaration to define shorthands. These can be chained e.g '-fs large'.
+    pub const switches = .{
+        .force = 'f',
+        .age = 'a',
+        .power = 'p',
+        .size = 's',
     };
 };

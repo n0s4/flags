@@ -1,44 +1,12 @@
 const std = @import("std");
 const validate = @import("validate.zig");
-const help = @import("help.zig");
-const format = @import("format.zig");
+const core = @import("core.zig");
+
+pub const PositionalHandler = core.PositionalHandler;
+pub const fatal = core.fatal;
 
 const ArgIterator = std.process.ArgIterator;
 const Allocator = std.mem.Allocator;
-
-/// Prints the formatted error message to stderr and exits with status code 1.
-pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
-    const stderr = std.io.getStdErr().writer();
-    stderr.print("error: " ++ message ++ ".\n", args) catch {};
-    std.process.exit(1);
-}
-
-fn printHelp(comptime Command: type, comptime command_name: []const u8) noreturn {
-    const message = comptime help.helpMessage(Command, command_name);
-
-    std.io.getStdOut().writeAll(message) catch |err| {
-        fatal("could not write help to stdout: {!}", .{err});
-    };
-
-    std.process.exit(0);
-}
-
-const PositionalList = struct {
-    buffer: std.ArrayListUnmanaged([]const u8),
-
-    pub fn init(buffer: [][]const u8) PositionalList {
-        return .{
-            .buffer = std.ArrayListUnmanaged([]const u8).initBuffer(buffer),
-        };
-    }
-
-    pub fn append(self: *PositionalList, positional: []const u8) Allocator.Error!void {
-        if (self.buffer.items.len >= self.buffer.capacity) {
-            return Allocator.Error.OutOfMemory;
-        }
-        self.buffer.appendAssumeCapacity(positional);
-    }
-};
 
 pub const ParseOptions = struct {
     /// The first argument is almost always the executable name used to run the program.
@@ -50,27 +18,70 @@ pub const ParseOptions = struct {
     validate: bool = true,
 };
 
+/// A PositionalHandler that causes a fatal error when a positional argument is passed.
+const NoPositional = struct {
+    pub const NoError = error{};
+
+    fn errorOnPositional(context: *anyopaque, positional: []const u8) NoError!void {
+        _ = context;
+        fatal("unexpected argument: '{s}'", .{positional});
+    }
+
+    pub fn handler() PositionalHandler(NoError) {
+        return .{
+            .context = undefined,
+            .handleFn = &errorOnPositional,
+        };
+    }
+};
+
+/// This does not allow any positional arguments to be passed.
+/// If you need to take positional arguments, use `parseWithBuffer` or `parseWithAllocator`.
+pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) Command {
+    return parseWithPositionalHandler(
+        NoPositional.NoError,
+        NoPositional.handler(),
+        args,
+        Command,
+        options,
+    ) catch unreachable;
+}
+
 /// Combines `Command` with an `args` field which stores positional arguments.
 fn Result(comptime Command: type) type {
     return struct {
-        flags: Command,
-        /// Stores extra positional arguments not linked to any flag.
-        args: []const []const u8,
+        command: Command,
+        positionals: []const []const u8,
     };
 }
 
-/// This does not allow any positional arguments to be passed.
-///
-/// If you need to take positional arguments, use `parseWithBuffer`.
-pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) Command {
-    // Using an empty buffer means that any positional argument will case an error.
-    var empty = [0][]const u8{};
-    const result = parseWithBuffer(&empty, args, Command, options) catch {
-        fatal("unexpected stray argument", .{});
-    };
+/// A PositionalHandler which appends positionals in a fixed buffer.
+const FixedBufferList = struct {
+    pub const Error = Allocator.Error;
 
-    return result.flags;
-}
+    buffer: [][]const u8,
+    len: usize = 0,
+
+    fn append(self: *FixedBufferList, arg: []const u8) Error!void {
+        if (self.len >= self.buffer.len) {
+            return Error.OutOfMemory;
+        }
+        self.buffer[self.len] = arg;
+        self.len += 1;
+    }
+
+    fn appendTypeErased(context: *anyopaque, arg: []const u8) Error!void {
+        const self: *FixedBufferList = @alignCast(@ptrCast(context));
+        return self.append(arg);
+    }
+
+    pub fn handler(self: *FixedBufferList) PositionalHandler(Error) {
+        return .{
+            .context = self,
+            .handleFn = &appendTypeErased,
+        };
+    }
+};
 
 /// Uses a fixed buffer to store positional/trailing arguments.
 /// Fails if the number of positional arguments passed cannot fit in the buffer.
@@ -80,6 +91,79 @@ pub fn parseWithBuffer(
     comptime Command: type,
     comptime options: ParseOptions,
 ) Allocator.Error!Result(Command) {
+    var positionals = FixedBufferList{ .buffer = positional_args_buf };
+
+    const command = try parseWithPositionalHandler(
+        FixedBufferList.Error,
+        positionals.handler(),
+        args,
+        Command,
+        options,
+    );
+
+    return Result(Command){
+        .command = command,
+        .positionals = positionals.buffer[0..positionals.len],
+    };
+}
+
+/// Combines the `Command` result with an allocated list of positional arguments.
+pub fn AllocResult(comptime Command: type) type {
+    return struct {
+        command: Command,
+        positionals: std.ArrayList([]const u8),
+    };
+}
+
+/// PositionalHandler appending positionals to a `std.ArrayList`.
+const AllocatedList = struct {
+    pub const Error = Allocator.Error;
+
+    list: std.ArrayList([]const u8),
+
+    fn appendTypeErased(context: *anyopaque, arg: []const u8) Error!void {
+        const self: *AllocatedList = @alignCast(@ptrCast(context));
+        return self.list.append(arg);
+    }
+
+    fn handler(self: *AllocatedList) PositionalHandler(Error) {
+        return .{
+            .context = self,
+            .handleFn = &appendTypeErased,
+        };
+    }
+};
+
+/// Call result.args.deinit() to free the positional arguments.
+pub fn parseWithAllocator(
+    allocator: Allocator,
+    args: *ArgIterator,
+    comptime Command: type,
+    comptime options: ParseOptions,
+) Allocator.Error!AllocResult(Command) {
+    var positionals = AllocatedList{ .list = std.ArrayList([]const u8).init(allocator) };
+
+    const command = try parseWithPositionalHandler(
+        AllocatedList.Error,
+        positionals.handler(),
+        args,
+        Command,
+        options,
+    );
+
+    return AllocResult(Command){
+        .command = command,
+        .positionals = positionals.list,
+    };
+}
+
+pub fn parseWithPositionalHandler(
+    comptime HandleError: type,
+    pos_handler: PositionalHandler(HandleError),
+    args: *ArgIterator,
+    comptime Command: type,
+    comptime options: ParseOptions,
+) HandleError!Command {
     if (options.validate) {
         comptime validate.assertValid(Command);
     }
@@ -87,178 +171,5 @@ pub fn parseWithBuffer(
         if (!args.skip()) fatal("expected at least 1 argument", .{});
     }
 
-    var positionals = PositionalList.init(positional_args_buf);
-    return parseGeneric(args, &positionals, Command, Command.name);
-}
-
-/// The "main" parsing function.
-fn parseGeneric(
-    args: *ArgIterator,
-    positionals: *PositionalList,
-    comptime Command: type,
-    comptime command_name: []const u8,
-) Allocator.Error!Result(Command) {
-    return switch (@typeInfo(Command)) {
-        .Union => parseCommands(args, positionals, Command, command_name),
-        .Struct => parseFlags(args, positionals, Command, command_name),
-        else => comptime unreachable,
-    };
-}
-
-fn parseCommands(
-    args: *ArgIterator,
-    positionals: *PositionalList,
-    comptime Commands: type,
-    comptime command_name: []const u8,
-) Allocator.Error!Result(Commands) {
-    const arg = args.next() orelse fatal("expected subcommand", .{});
-
-    if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-        printHelp(Commands, command_name);
-    }
-
-    inline for (@typeInfo(Commands).Union.fields) |command| {
-        if (std.mem.eql(u8, comptime format.toKebab(command.name), arg)) {
-            const sub_result = try parseGeneric(
-                args,
-                positionals,
-                command.type,
-                command_name ++ " " ++ command.name,
-            );
-
-            return .{
-                .flags = @unionInit(Commands, command.name, sub_result.flags),
-                .args = sub_result.args,
-            };
-        }
-    }
-
-    fatal("unrecognized subcommand: '{s}'. see {s} --help", .{ arg, command_name });
-}
-
-fn parseFlags(
-    args: *ArgIterator,
-    positionals: *PositionalList,
-    comptime Flags: type,
-    comptime command_name: []const u8,
-) Allocator.Error!Result(Flags) {
-    var flags: Flags = undefined;
-    var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
-
-    next_arg: while (args.next()) |arg| {
-        if (arg.len == 0) fatal("empty argument", .{});
-
-        if (arg[0] != '-') {
-            try positionals.append(arg);
-            continue :next_arg;
-        }
-
-        if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
-
-        if (std.mem.eql(u8, arg, "--")) {
-            // Blindly treat the remaining flags as positional arguments
-            while (args.next()) |positional| {
-                try positionals.append(positional);
-            }
-            break;
-        }
-
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            printHelp(Flags, command_name);
-        }
-
-        if (arg[1] == '-') {
-            inline for (std.meta.fields(Flags)) |field| {
-                if (std.mem.eql(u8, arg, format.flagName(field))) {
-                    @field(passed, field.name) = true;
-
-                    @field(flags, field.name) = parseArg(field.type, args, format.flagName(field));
-
-                    continue :next_arg;
-                }
-            }
-            fatal("unrecognized flag: {s}", .{arg});
-        }
-
-        if (@hasDecl(Flags, "switches")) {
-            next_switch: for (arg[1..], 1..) |char, i| {
-                inline for (std.meta.fields(@TypeOf(Flags.switches))) |switch_field| {
-                    if (char == @field(Flags.switches, switch_field.name)) {
-                        @field(passed, switch_field.name) = true;
-
-                        const FieldType = @TypeOf(@field(flags, switch_field.name));
-                        // Removing this check would allow formats like:
-                        // `$ <cmd> -abc value-for-a value-for-b value-for-c`
-                        if (FieldType != bool and i != arg.len - 1) {
-                            fatal("expected argument after switch '{c}'", .{char});
-                        }
-                        const value = parseArg(FieldType, args, &.{ '-', char });
-                        @field(flags, switch_field.name) = value;
-
-                        continue :next_switch;
-                    }
-                }
-
-                fatal("unrecognized switch: {c}", .{char});
-            }
-            continue :next_arg;
-        }
-    }
-
-    inline for (std.meta.fields(Flags)) |field| if (!@field(passed, field.name)) {
-        if (field.default_value) |default_opaque| {
-            const default = @as(*const field.type, @ptrCast(@alignCast(default_opaque))).*;
-            @field(flags, field.name) = default;
-        } else {
-            @field(flags, field.name) = switch (@typeInfo(field.type)) {
-                .Optional => null,
-                .Bool => false,
-                else => fatal("missing required flag: '{s}'", .{format.flagName(field)}),
-            };
-        }
-    };
-
-    return Result(Flags){
-        .flags = flags,
-        .args = positionals.buffer.items,
-    };
-}
-
-fn parseArg(comptime T: type, args: *ArgIterator, flag_name: []const u8) T {
-    if (T == bool) return true;
-
-    const value = args.next() orelse fatal("expected argument for '{s}'", .{flag_name});
-
-    const V = switch (@typeInfo(T)) {
-        .Optional => |optional| optional.child,
-        else => T,
-    };
-
-    if (V == []const u8) return value;
-
-    if (@typeInfo(V) == .Enum) {
-        inline for (std.meta.fields(V)) |field| {
-            if (std.mem.eql(u8, value, format.toKebab(field.name))) {
-                return @field(V, field.name);
-            }
-        }
-
-        fatal("invalid option for '{s}': '{s}'", .{ flag_name, value });
-    }
-
-    if (@typeInfo(V) == .Int) {
-        const num = std.fmt.parseInt(V, value, 10) catch |err| switch (err) {
-            error.Overflow => fatal(
-                "integer argument too big for {s}: '{s}'",
-                .{ @typeName(V), value },
-            ),
-            error.InvalidCharacter => fatal(
-                "expected integer argument for '{s}', found '{s}'",
-                .{ flag_name, value },
-            ),
-        };
-        return num;
-    }
-
-    comptime unreachable;
+    return core.parse(args, Command, Command.name, HandleError, pos_handler);
 }

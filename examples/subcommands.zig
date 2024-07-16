@@ -17,6 +17,9 @@ pub fn main() !void {
     );
 }
 
+// For subcommands, declare a tagged union instead of a struct.
+// Each field is either a struct which declares flags as usual, or another tagged enum for
+// nested subcommands.
 const Command = union(enum) {
     pub const name = "subcommands";
 
