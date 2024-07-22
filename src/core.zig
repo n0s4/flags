@@ -1,6 +1,9 @@
 const std = @import("std");
 const format = @import("format.zig");
 const help = @import("help.zig");
+const check = @import("check.zig");
+
+const compileError = check.compileError;
 
 const ArgIterator = std.process.ArgIterator;
 
@@ -23,7 +26,12 @@ pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
 }
 
 pub fn printHelp(comptime Command: type, comptime command_name: []const u8) noreturn {
-    const message = comptime help.helpMessage(Command, command_name);
+    const message = comptime if (@hasDecl(Command, "full_help")) blk: {
+        if (!check.isString(@TypeOf(Command.full_help))) {
+            compileError("'full_help' is not a string", .{});
+        }
+        break :blk Command.full_help;
+    } else help.helpMessage(Command, command_name);
 
     std.io.getStdOut().writeAll(message) catch |err| {
         fatal("could not write help to stdout: {!}", .{err});
@@ -59,7 +67,7 @@ fn parseCommands(
         printHelp(Commands, command_name);
     }
 
-    inline for (@typeInfo(Commands).Union.fields) |command| {
+    inline for (std.meta.fields(Commands)) |command| {
         if (std.mem.eql(u8, comptime format.toKebab(command.name), arg)) {
             const sub_result = try parse(
                 args,
@@ -110,6 +118,10 @@ fn parseFlags(
 
         if (arg[1] == '-') {
             inline for (std.meta.fields(Flags)) |field| {
+                comptime if (std.mem.eql(u8, field.name, "help")) {
+                    compileError("flag name 'help' is reserved for showing help", .{});
+                };
+
                 if (std.mem.eql(u8, arg, format.flagName(field))) {
                     @field(passed, field.name) = true;
 
@@ -122,28 +134,67 @@ fn parseFlags(
         }
 
         if (@hasDecl(Flags, "switches")) {
-            next_switch: for (arg[1..], 1..) |char, i| {
-                inline for (std.meta.fields(@TypeOf(Flags.switches))) |switch_field| {
-                    if (char == @field(Flags.switches, switch_field.name)) {
-                        @field(passed, switch_field.name) = true;
+            const Switches = @TypeOf(Flags.switches);
+            const fields = std.meta.fields(Switches);
 
-                        const FieldType = @TypeOf(@field(flags, switch_field.name));
+            comptime { // validation
+                if (@typeInfo(Switches) != .Struct) {
+                    compileError("'switches' is not a struct", .{});
+                }
+                for (fields, 0..) |field, field_idx| {
+                    if (!@hasField(Flags, field.name)) compileError(
+                        "switch name does not match any fields: '{s}'",
+                        .{field.name},
+                    );
+
+                    if (field.type != comptime_int) compileError(
+                        "invalid switch type for '{s}': {s}",
+                        .{ field.name, @typeName(field.type) },
+                    );
+
+                    const switch_val = @field(Flags.switches, field.name);
+                    switch (switch_val) {
+                        'a'...'z', 'A'...'Z' => if (switch_val == 'h') compileError(
+                            "switch value 'h' is reserved for the help message",
+                            .{},
+                        ),
+                        else => compileError(
+                            "switch value for '{s}' is not a letter",
+                            .{field.name},
+                        ),
+                    }
+
+                    for (fields[field_idx + 1 ..]) |other_field| {
+                        const other = @field(Flags.switches, other_field.name);
+                        if (switch_val == other) compileError(
+                            "duplicated switch values: '{s}' and '{s}'",
+                            .{ field.name, other.name },
+                        );
+                    }
+                }
+            }
+
+            next_switch: for (arg[1..], 1..) |char, i| {
+                inline for (fields) |field| {
+                    if (char == @field(Flags.switches, field.name)) {
+                        @field(passed, field.name) = true;
+
+                        const FieldType = @TypeOf(@field(flags, field.name));
                         // Removing this check would allow formats like:
                         // `$ <cmd> -abc value-for-a value-for-b value-for-c`
                         if (FieldType != bool and i != arg.len - 1) {
                             fatal("expected argument after switch '{c}'", .{char});
                         }
                         const value = parseArg(FieldType, args, &.{ '-', char });
-                        @field(flags, switch_field.name) = value;
+                        @field(flags, field.name) = value;
 
                         continue :next_switch;
                     }
                 }
-
                 fatal("unrecognized switch: {c}", .{char});
             }
-            continue :next_arg;
         }
+        continue :next_arg;
     }
 
     inline for (std.meta.fields(Flags)) |field| if (!@field(passed, field.name)) {
@@ -198,5 +249,5 @@ fn parseArg(comptime T: type, args: *ArgIterator, flag_name: []const u8) T {
         return num;
     }
 
-    comptime unreachable;
+    compileError("invalid flag type: {s}", .{@typeName(T)});
 }

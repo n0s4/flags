@@ -1,5 +1,5 @@
 const std = @import("std");
-const validate = @import("validate.zig");
+const check = @import("check.zig");
 const core = @import("core.zig");
 
 pub const PositionalHandler = core.PositionalHandler;
@@ -11,11 +11,6 @@ const Allocator = std.mem.Allocator;
 pub const ParseOptions = struct {
     /// The first argument is almost always the executable name used to run the program.
     skip_first_arg: bool = true,
-
-    /// Give useful compile errors if your `Command` type is invalid.
-    ///
-    /// Only disable if you don't need help and want to save the compiler from unnecessary work.
-    validate: bool = true,
 };
 
 /// A PositionalHandler that causes a fatal error when a positional argument is passed.
@@ -164,12 +159,12 @@ pub fn parseWithPositionalHandler(
     comptime Command: type,
     comptime options: ParseOptions,
 ) HandleError!Command {
-    if (options.validate) {
-        comptime validate.assertValid(Command);
-    }
     if (options.skip_first_arg) {
         if (!args.skip()) fatal("expected at least 1 argument", .{});
     }
 
+    comptime if (!@hasDecl(Command, "name") or !check.isString(@TypeOf(Command.name))) {
+        check.compileError("top level command must declare a 'name' as a string", .{});
+    };
     return core.parse(args, Command, Command.name, HandleError, pos_handler);
 }
