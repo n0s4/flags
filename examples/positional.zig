@@ -2,20 +2,23 @@ const std = @import("std");
 const flags = @import("flags");
 
 const Command = struct {
-    pub const name = "positionals";
+    pub const name = "positional";
     flag: bool,
+
+    // The 'positional' field is a special field that defines arguments that are not associated
+    // with any --flag. Hence the name "positional" arguments.
     positional: struct {
-        p1: []const u8,
-        p2: u32,
-        p3: ?u8,
+        first: []const u8,
+        second: u32,
+        // Optional positional arguments must come at the end.
+        third: ?u8,
     },
 };
 
 pub fn main() !void {
     var args = std.process.args();
-    var buf: [2][]const u8 = undefined;
 
-    const cmd = flags.parseWithBuffer(&buf, &args, Command, .{}) catch unreachable;
+    const cmd = flags.parse(&args, Command, .{});
 
     try std.json.stringify(
         cmd,

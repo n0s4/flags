@@ -218,7 +218,7 @@ fn parseFlags(
                 @field(flags.positional, field.name) = meta.defaultValue(field) orelse
                     switch (@typeInfo(field.type)) {
                     .Optional => null,
-                    else => fatal("missing required argument: {s}", .{field.name}),
+                    else => fatal("missing required argument: {s}", .{format.positionalName(field)}),
                 };
             }
         }

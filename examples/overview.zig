@@ -45,9 +45,9 @@ const Flags = struct {
     override: []const u8 = "defaulty", // "defaulty" if not passed.
     required: []const u8, // fatal error if not passed.
 
-    // Integer types are parsed automatically with specific error messages for bad input.
+    // Integer and float types are parsed automatically with specific error messages for bad input.
     age: ?u8,
-    power: i32 = 9000,
+    power: f32 = 9000,
 
     // Restrict choice with enums:
     size: enum {
