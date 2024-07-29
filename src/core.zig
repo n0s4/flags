@@ -244,6 +244,9 @@ fn parseValue(comptime T: type, arg: []const u8) T {
             ),
             error.InvalidCharacter => fatal("expected integer value, found '{s}'", .{arg}),
         },
+        .Float => return std.fmt.parseFloat(T, arg) catch |err| switch (err) {
+            error.InvalidCharacter => fatal("expected floating-point number, found '{s}'", .{arg}),
+        },
         .Enum => {
             inline for (std.meta.fields(T)) |field| {
                 if (std.mem.eql(u8, arg, format.toKebab(field.name))) {
