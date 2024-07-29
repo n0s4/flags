@@ -139,13 +139,22 @@ fn parseFlags(
 
     var positional_parser = PositionalParser(Flags).init(trailing_handler);
 
-    next_arg: while (args.next()) |arg| switch (argType(arg)) {
-        .positional => try positional_parser.parse(arg, &flags),
-        .double_dash => while (args.next()) |positional| {
-            try positional_parser.parse(positional, &flags);
-        },
-        .flag => {
-            if (std.mem.eql(u8, arg[2..], "help")) printHelp(Flags, command_name);
+    next_arg: while (args.next()) |arg| {
+        if (arg.len == 0) fatal("empty argument", .{});
+
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            printHelp(Flags, command_name);
+            continue :next_arg;
+        }
+
+        if (std.mem.eql(u8, arg, "--")) {
+            // Blindly treat remaining arguments as positionals.
+            while (args.next()) |positional| {
+                try positional_parser.parse(positional, &flags);
+            }
+        }
+
+        if (std.mem.startsWith(u8, arg, "--")) {
             inline for (flag_fields) |field| {
                 comptime if (std.mem.eql(u8, field.name, "help")) {
                     compileError("flag name 'help' is reserved for showing help", .{});
@@ -161,14 +170,9 @@ fn parseFlags(
                 }
             }
             fatal("unrecognized flag: {s}", .{arg});
-        },
-        .switch_set => {
-            if (!@hasDecl(Flags, "switches")) {
-                // It could be a negative number, for example.
-                try positional_parser.parse(arg, &flags);
-                continue :next_arg;
-            }
+        }
 
+        if (@hasDecl(Flags, "switches") and arg[0] == '-') {
             const Switches = @TypeOf(Flags.switches);
             comptime validate.validateSwitches(Flags, Switches);
 
@@ -176,6 +180,7 @@ fn parseFlags(
                 if (char == 'h') printHelp(Flags, command_name);
                 inline for (@typeInfo(Switches).Struct.fields) |field| {
                     if (char == @field(Flags.switches, field.name)) {
+                        std.log.debug("dbg", .{});
                         @field(passed, field.name) = true;
 
                         const FieldType = @TypeOf(@field(flags, field.name));
@@ -192,8 +197,11 @@ fn parseFlags(
                 }
                 fatal("unrecognized switch: {c}", .{char});
             }
-        },
-    };
+            continue :next_arg;
+        }
+
+        try positional_parser.parse(arg, &flags);
+    }
 
     inline for (flag_fields) |field| if (!@field(passed, field.name)) {
         @field(flags, field.name) = meta.defaultValue(field) orelse switch (@typeInfo(field.type)) {
@@ -217,21 +225,6 @@ fn parseFlags(
     }
 
     return flags;
-}
-
-const ArgType = enum {
-    positional,
-    flag,
-    switch_set,
-    double_dash,
-};
-
-fn argType(arg: []const u8) ArgType {
-    if (arg.len == 0) fatal("empty argument", .{});
-    if (arg[0] != '-') return .positional;
-    if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
-    if (arg[1] != '-') return .switch_set;
-    return if (arg.len > 2) .flag else .double_dash;
 }
 
 fn parseFlag(comptime T: type, args: *ArgIterator, flag_name: []const u8) T {
