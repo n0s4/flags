@@ -107,7 +107,7 @@ fn parseCommands(
             const sub_result = try parse(
                 args,
                 command.type,
-                command_name ++ " " ++ command.name,
+                command_name ++ " " ++ format.toKebab(command.name),
                 trailing_handler,
             );
 
