@@ -1,8 +1,9 @@
 const std = @import("std");
 const format = @import("format.zig");
-const check = @import("check.zig");
+const meta = @import("meta.zig");
+const validate = @import("validate.zig");
 
-const compileError = check.compileError;
+const compileError = meta.compileError;
 const comptimePrint = std.fmt.comptimePrint;
 
 const indent = "  ";
@@ -33,20 +34,9 @@ const Item = struct {
 };
 
 pub fn helpMessage(comptime Command: type, comptime name: []const u8) []const u8 {
-    comptime if (@hasDecl(Command, "descriptions")) { // validation
-        const Descriptions = @TypeOf(Command.descriptions);
-        if (@typeInfo(Descriptions) != .Struct) {
-            compileError("'descriptions' is not a struct", .{});
-        }
-        for (std.meta.fields(Descriptions)) |desc| {
-            if (!@hasField(Command, desc.name)) {
-                compileError("description does not match any field: '{s}'", .{desc.name});
-            }
-            if (!check.isString(desc.type)) {
-                compileError("description is not a string for '{s}'", .{desc.name});
-            }
-        }
-    };
+    if (@hasDecl(Command, "descriptions")) {
+        comptime validate.validateDescriptions(Command, @TypeOf(Command.descriptions));
+    }
 
     return switch (@typeInfo(Command)) {
         .Struct => helpFlags(Command, name),
@@ -63,7 +53,7 @@ fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []co
     );
 
     if (@hasDecl(Commands, "help")) {
-        if (!check.isString(@TypeOf(Commands.help))) {
+        if (!meta.isString(@TypeOf(Commands.help))) {
             compileError("'help' is not a string", .{});
         }
         help = help ++ comptimePrint("\n{s}\n", .{Commands.help});
@@ -100,7 +90,7 @@ fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8
     );
 
     if (@hasDecl(Flags, "help")) {
-        if (!check.isString(@TypeOf(Flags.help))) {
+        if (!meta.isString(@TypeOf(Flags.help))) {
             compileError("'help' is not a string", .{});
         }
         help = help ++ comptimePrint("\n{s}\n", .{Flags.help});

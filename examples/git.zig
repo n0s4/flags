@@ -35,6 +35,9 @@ const GitCli = union(enum) {
         template: ?[]const u8,
         bare: bool,
         quiet: bool,
+        positional: struct {
+            directory: ?[]const u8,
+        },
 
         pub const switches = .{
             .quiet = 'q',

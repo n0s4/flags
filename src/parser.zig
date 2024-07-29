@@ -1,8 +1,8 @@
 const std = @import("std");
-const check = @import("check.zig");
+const meta = @import("meta.zig");
 const core = @import("core.zig");
 
-pub const PositionalHandler = core.PositionalHandler;
+pub const TrailingHandler = core.TrailingHandler;
 pub const fatal = core.fatal;
 
 const ArgIterator = std.process.ArgIterator;
@@ -13,46 +13,45 @@ pub const ParseOptions = struct {
     skip_first_arg: bool = true,
 };
 
-/// A PositionalHandler that causes a fatal error when a positional argument is passed.
-const NoPositional = struct {
+/// A TrailingHandler that causes a fatal error when a trailing argument is passed.
+const NoTrailing = struct {
     pub const NoError = error{};
 
-    fn errorOnPositional(context: *anyopaque, positional: []const u8) NoError!void {
+    fn errorOnTrailing(context: *anyopaque, arg: []const u8) NoError!void {
         _ = context;
-        fatal("unexpected argument: '{s}'", .{positional});
+        fatal("unexpected argument: '{s}'", .{arg});
     }
 
-    pub fn handler() PositionalHandler(NoError) {
+    pub fn handler() TrailingHandler {
         return .{
             .context = undefined,
-            .handleFn = &errorOnPositional,
+            .handleFn = &errorOnTrailing,
         };
     }
 };
 
-/// This does not allow any positional arguments to be passed.
-/// If you need to take positional arguments, use `parseWithBuffer` or `parseWithAllocator`.
+/// This does not allow any trailing arguments to be passed.
+/// If you need to take trailing arguments, use `parseWithBuffer` or `parseWithAllocator`.
 pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) Command {
-    return parseWithPositionalHandler(
-        NoPositional.NoError,
-        NoPositional.handler(),
+    return parseWithTrailingHandler(
+        NoTrailing.handler(),
         args,
         Command,
         options,
     ) catch unreachable;
 }
 
-/// Combines `Command` with an `args` field which stores positional arguments.
+/// Combines `Command` with an `args` field which stores trailing arguments.
 fn Result(comptime Command: type) type {
     return struct {
         command: Command,
-        positionals: []const []const u8,
+        trailing: []const []const u8,
     };
 }
 
-/// A PositionalHandler which appends positionals in a fixed buffer.
+/// A TrailingHandler which appends trailing arguments in a fixed buffer.
 const FixedBufferList = struct {
-    pub const Error = Allocator.Error;
+    const Error = Allocator.Error;
 
     buffer: [][]const u8,
     len: usize = 0,
@@ -70,7 +69,7 @@ const FixedBufferList = struct {
         return self.append(arg);
     }
 
-    pub fn handler(self: *FixedBufferList) PositionalHandler(Error) {
+    pub fn handler(self: *FixedBufferList) TrailingHandler {
         return .{
             .context = self,
             .handleFn = &appendTypeErased,
@@ -78,39 +77,44 @@ const FixedBufferList = struct {
     }
 };
 
-/// Uses a fixed buffer to store positional/trailing arguments.
-/// Fails if the number of positional arguments passed cannot fit in the buffer.
+/// Uses a fixed buffer to store trailing arguments.
+/// Fails if the number of trailing arguments passed cannot fit in the buffer.
 pub fn parseWithBuffer(
-    positional_args_buf: [][]const u8,
+    trailing_args_buf: [][]const u8,
     args: *ArgIterator,
     comptime Command: type,
     comptime options: ParseOptions,
 ) Allocator.Error!Result(Command) {
-    var positionals = FixedBufferList{ .buffer = positional_args_buf };
+    var trailing = FixedBufferList{ .buffer = trailing_args_buf };
 
-    const command = try parseWithPositionalHandler(
-        FixedBufferList.Error,
-        positionals.handler(),
-        args,
-        Command,
-        options,
+    // Error-casting nightmare because trailing.write returns anyerror.
+    const command = try @as(
+        Allocator.Error!Command,
+        @errorCast(
+            parseWithTrailingHandler(
+                trailing.handler(),
+                args,
+                Command,
+                options,
+            ),
+        ),
     );
 
     return Result(Command){
         .command = command,
-        .positionals = positionals.buffer[0..positionals.len],
+        .trailing = trailing.buffer[0..trailing.len],
     };
 }
 
-/// Combines the `Command` result with an allocated list of positional arguments.
+/// Combines the `Command` result with an allocated list of trailing arguments.
 pub fn AllocResult(comptime Command: type) type {
     return struct {
         command: Command,
-        positionals: std.ArrayList([]const u8),
+        trailing: std.ArrayList([]const u8),
     };
 }
 
-/// PositionalHandler appending positionals to a `std.ArrayList`.
+/// TrailingHandler appending trailing arguments to a `std.ArrayList`.
 const AllocatedList = struct {
     pub const Error = Allocator.Error;
 
@@ -121,7 +125,7 @@ const AllocatedList = struct {
         return self.list.append(arg);
     }
 
-    fn handler(self: *AllocatedList) PositionalHandler(Error) {
+    fn handler(self: *AllocatedList) TrailingHandler {
         return .{
             .context = self,
             .handleFn = &appendTypeErased,
@@ -129,42 +133,46 @@ const AllocatedList = struct {
     }
 };
 
-/// Call result.args.deinit() to free the positional arguments.
+/// Call result.args.deinit() to free the trailing arguments.
 pub fn parseWithAllocator(
     allocator: Allocator,
     args: *ArgIterator,
     comptime Command: type,
     comptime options: ParseOptions,
 ) Allocator.Error!AllocResult(Command) {
-    var positionals = AllocatedList{ .list = std.ArrayList([]const u8).init(allocator) };
+    var trailing = AllocatedList{ .list = std.ArrayList([]const u8).init(allocator) };
 
-    const command = try parseWithPositionalHandler(
-        AllocatedList.Error,
-        positionals.handler(),
-        args,
-        Command,
-        options,
+    const command = try @as(
+        Allocator.Error!Command,
+        @errorCast(
+            parseWithTrailingHandler(
+                trailing.handler(),
+                args,
+                Command,
+                options,
+            ),
+        ),
     );
 
     return AllocResult(Command){
         .command = command,
-        .positionals = positionals.list,
+        .trailing = trailing.list,
     };
 }
 
-pub fn parseWithPositionalHandler(
-    comptime HandleError: type,
-    pos_handler: PositionalHandler(HandleError),
+/// The returned error will originate from the trailing_handler's handle function.
+pub fn parseWithTrailingHandler(
+    trailing_handler: TrailingHandler,
     args: *ArgIterator,
     comptime Command: type,
     comptime options: ParseOptions,
-) HandleError!Command {
+) !Command {
     if (options.skip_first_arg) {
         if (!args.skip()) fatal("expected at least 1 argument", .{});
     }
 
-    comptime if (!@hasDecl(Command, "name") or !check.isString(@TypeOf(Command.name))) {
-        check.compileError("top level command must declare a 'name' as a string", .{});
+    comptime if (!@hasDecl(Command, "name") or !meta.isString(@TypeOf(Command.name))) {
+        meta.compileError("top level command must declare a 'name' as a string", .{});
     };
-    return core.parse(args, Command, Command.name, HandleError, pos_handler);
+    return core.parse(args, Command, Command.name, trailing_handler);
 }
