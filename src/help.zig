@@ -67,13 +67,13 @@ fn helpCommands(comptime Commands: type, comptime command_name: []const u8) []co
     for (std.meta.fields(Commands)) |command| {
         const name = indent ++ format.toKebab(command.name);
         if (name.len > max_name_len) max_name_len = name.len;
-        items = items ++ [_]Item{.{
+        items = items ++ .{.{
             .name = name,
             .description = getDescriptionFor(Commands, command.name),
         }};
     }
 
-    items = items ++ [_]Item{Item.help};
+    items = items ++ .{Item.help};
 
     for (items) |desc| {
         help = help ++ desc.render(max_name_len) ++ "\n";
@@ -102,6 +102,7 @@ fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8
     comptime var max_name_len = Item.help.name.len;
 
     for (std.meta.fields(Flags)) |field| {
+        if (std.mem.eql(u8, field.name, "positional")) continue;
         comptime var name: []const u8 = format.flagName(field);
 
         if (comptime getSwitchFor(Flags, field.name)) |swtch| {
@@ -115,7 +116,7 @@ fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8
 
         if (name.len > max_name_len) max_name_len = name.len;
 
-        descriptions = descriptions ++ [_]Item{.{
+        descriptions = descriptions ++ .{.{
             .name = name,
             .description = getDescriptionFor(Flags, field.name),
         }};
@@ -132,12 +133,12 @@ fn helpFlags(comptime Flags: type, comptime command_name: []const u8) []const u8
                     .description = getDescriptionFor(T, enum_field.name),
                 };
                 if (variant.name.len > max_name_len) max_name_len = variant.name.len;
-                descriptions = descriptions ++ [_]Item{variant};
+                descriptions = descriptions ++ .{variant};
             }
         }
     }
 
-    descriptions = descriptions ++ [_]Item{Item.help};
+    descriptions = descriptions ++ .{Item.help};
 
     for (descriptions) |desc| {
         help = help ++ desc.render(max_name_len) ++ "\n";

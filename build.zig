@@ -28,7 +28,6 @@ pub fn build(b: *std.Build) void {
         enum {
             overview,
             subcommands,
-            positional,
             trailing,
             git,
         },

@@ -131,7 +131,7 @@ fn parseFlags(
         var fields: []const std.builtin.Type.StructField = &.{};
         for (std.meta.fields(Flags)) |field| {
             if (!std.mem.eql(u8, field.name, "positional")) {
-                fields = fields ++ &[1]std.builtin.Type.StructField{field};
+                fields = fields ++ .{field};
             }
         }
         break :blk fields;

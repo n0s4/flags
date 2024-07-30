@@ -6,10 +6,11 @@ pub fn flagName(comptime field: std.builtin.Type.StructField) []const u8 {
     return "--" ++ comptime toKebab(field.name);
 }
 
+/// Converts "positional_field" to "<POSITIONAL_FIELD>.".
 pub fn positionalName(comptime field: std.builtin.Type.StructField) []const u8 {
     comptime var upper: []const u8 = &.{};
     comptime for (field.name) |c| {
-        upper = upper ++ &[_]u8{std.ascii.toUpper(c)};
+        upper = upper ++ .{std.ascii.toUpper(c)};
     };
     return std.fmt.comptimePrint("<{s}>", .{upper});
 }
