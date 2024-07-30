@@ -11,6 +11,9 @@ const Allocator = std.mem.Allocator;
 pub const ParseOptions = struct {
     /// The first argument is almost always the executable name used to run the program.
     skip_first_arg: bool = true,
+    /// The name of the command used to run the program, should be your executable name.
+    /// If omitted, the name of the Command type will be used.
+    command_name: ?[]const u8 = null,
 };
 
 /// A TrailingHandler that causes a fatal error when a trailing argument is passed.
@@ -171,8 +174,25 @@ pub fn parseWithTrailingHandler(
         if (!args.skip()) fatal("expected at least 1 argument", .{});
     }
 
-    comptime if (!@hasDecl(Command, "name") or !meta.isString(@TypeOf(Command.name))) {
-        meta.compileError("top level command must declare a 'name' as a string", .{});
-    };
-    return core.parse(args, Command, Command.name, trailing_handler);
+    const command_name = options.command_name orelse comptime commandName(Command);
+    return core.parse(args, Command, command_name, trailing_handler);
+}
+
+// Converts Type name "namespace.MyCommand" to "my-command"
+fn commandName(comptime Command: type) []const u8 {
+    comptime var base_name: []const u8 = @typeName(Command);
+    // Trim off the leading namespaces - separated by dots.
+    if (std.mem.lastIndexOfScalar(u8, base_name, '.')) |last_dot_idx| {
+        base_name = base_name[last_dot_idx + 1 ..];
+    }
+
+    comptime var cmd_name: []const u8 = &.{std.ascii.toLower(base_name[0])};
+    for (base_name[1..]) |ch| {
+        cmd_name = cmd_name ++ if (std.ascii.isUpper(ch))
+            .{ '-', std.ascii.toLower(ch) }
+        else
+            .{ch};
+    }
+
+    return cmd_name;
 }

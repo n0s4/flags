@@ -8,7 +8,7 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa.allocator());
     defer args.deinit();
 
-    const result = flags.parse(&args, Flags, .{});
+    const result = flags.parse(&args, Overview, .{});
 
     try std.json.stringify(
         result,
@@ -17,18 +17,16 @@ pub fn main() !void {
     );
 }
 
-const Flags = struct {
-    // These declarations are for use in the "--help" message.
-    // They are all optional apart from `name`, which should be the name of your executable.
-    pub const name = "example";
-
-    // Description of the program.
+// The name of your type should match your executable name, e.g "my-program" -> "MyProgram".
+// This can be overridden in the call to `flags.parse`.
+const Overview = struct {
+    // Optional description of the program.
     pub const help =
         \\This is a dummy command for testing purposes.
         \\There are a bunch of options for demonstration purposes.
     ;
 
-    // Description of some or all of the flags (must match field names in the struct).
+    // Optional description of some or all of the flags (must match field names in the struct).
     pub const descriptions = .{
         .force = "Use the force",
         .optional = "You don't need this one",
@@ -62,6 +60,15 @@ const Flags = struct {
             .large = "The biggest",
         };
     } = .medium,
+
+    // The 'positional' field is a special field that defines arguments that are not associated
+    // with any --flag. Hence the name "positional" arguments.
+    positional: struct {
+        first: []const u8,
+        second: u32,
+        // Optional positional arguments must come at the end.
+        third: ?u8,
+    },
 
     // Optional declaration to define shorthands. These can be chained e.g '-fs large'.
     pub const switches = .{
