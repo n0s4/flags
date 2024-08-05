@@ -40,15 +40,17 @@ pub fn validateSwitches(comptime Flags: type, comptime Switches: type) void {
         );
 
         const switch_val = @field(Flags.switches, field.name);
-        switch (switch_val) {
-            'a'...'z', 'A'...'Z' => if (switch_val == 'h') compileError(
-                "switch value 'h' is reserved for the help message",
-                .{},
-            ),
-            else => compileError(
-                "switch value for '{s}' is not a letter",
-                .{field.name},
-            ),
+        if (@TypeOf(switch_val) != comptime_int) {
+            compileError("switch value is not a character: {any}", .{switch_val});
+        }
+        const switch_char = std.math.cast(u8, switch_val) orelse {
+            compileError("switch value is not a character: {any}", .{switch_val});
+        };
+        if (!std.ascii.isAlphanumeric(switch_char)) {
+            compileError("switch character is not a letter: {c}", .{switch_char});
+        }
+        if (switch_char == 'h') {
+            compileError("switch value 'h' is reserved for the help message: {s}", .{field.name});
         }
 
         for (fields[field_idx + 1 ..]) |other_field| {

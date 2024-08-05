@@ -180,7 +180,6 @@ fn parseFlags(
                 if (char == 'h') printHelp(Flags, command_name);
                 inline for (@typeInfo(Switches).Struct.fields) |field| {
                     if (char == @field(Flags.switches, field.name)) {
-                        std.log.debug("dbg", .{});
                         @field(passed, field.name) = true;
 
                         const FieldType = @TypeOf(@field(flags, field.name));
