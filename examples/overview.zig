@@ -21,7 +21,7 @@ pub fn main() !void {
 // This can be overridden in the call to `flags.parse`.
 const Overview = struct {
     // Optional description of the program.
-    pub const help =
+    pub const description =
         \\This is a dummy command for testing purposes.
         \\There are a bunch of options for demonstration purposes.
     ;
@@ -68,6 +68,32 @@ const Overview = struct {
         second: u32,
         // Optional positional arguments must come at the end.
         third: ?u8,
+
+        pub const descriptions = .{
+            .first = "The first argument (required)",
+            .second = "The second argument (required)",
+            .third = "The third argument (optional)",
+        };
+    },
+
+    // Subcommands can be defined through the `command` field, which should be a union with struct
+    // fields which are defined the same way this struct is. Subcommands may be nested.
+    command: union(enum) {
+        frobnicate: struct {
+            pub const descriptions = .{
+                .level = "Frobnication level",
+            };
+
+            level: u8,
+        },
+        defrabulise: struct {
+            supercharge: bool,
+        },
+
+        pub const descriptions = .{
+            .frobnicate = "Frobnicate everywhere",
+            .defrabulise = "Defrabulise everyone",
+        };
     },
 
     // Optional declaration to define shorthands. These can be chained e.g '-fs large'.
