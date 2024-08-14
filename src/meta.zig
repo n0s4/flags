@@ -84,13 +84,13 @@ pub fn info(comptime Flags: type) FlagsInfo {
 
             var seen_optional = false;
             for (@typeInfo(field.type).Struct.fields) |positional| {
-                if (@typeInfo(positional.type) == .Optional) {
+                if (@typeInfo(positional.type) != .Optional) {
                     if (seen_optional) compileError(
                         "non-optional positional field after optional: {s}",
                         .{positional.name},
-                    ) else {
-                        seen_optional = true;
-                    }
+                    );
+                } else {
+                    seen_optional = true;
                 }
                 command.positionals = command.positionals ++ .{Positional{
                     .type = positional.type,
