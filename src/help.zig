@@ -40,10 +40,7 @@ pub fn generate(
     comptime command_seq: []const u8,
 ) []const u8 {
     // TODO: generate usage
-    comptime var help: []const u8 = std.fmt.comptimePrint(
-        "Usage: {s} [options]\n",
-        .{command_seq},
-    );
+    comptime var help: []const u8 = generateUsage(Flags, info, command_seq);
 
     if (@hasDecl(Flags, "description")) {
         const description: []const u8 = Flags.description; // must be a string
@@ -117,7 +114,7 @@ fn getDescriptions(comptime S: type) Descriptions(S) {
         const D = @TypeOf(S.descriptions);
         if (@typeInfo(D) != .Struct) meta.compileError(
             "descriptions is not a struct value: {s}",
-            .{@typeName(Descriptions)},
+            .{@typeName(D)},
         );
 
         for (@typeInfo(D).Struct.fields) |desc| {
@@ -133,6 +130,112 @@ fn getDescriptions(comptime S: type) Descriptions(S) {
     }
 
     return descriptions;
+}
+
+const Usage = struct {
+    items: []const []const u8 = &.{},
+
+    fn add(self: *Usage, item: []const u8) void {
+        self.items = self.items ++ .{item};
+    }
+
+    pub fn render(self: Usage, comptime command_seq: []const u8) []const u8 {
+        var usage: []const u8 = "Usage: " ++ command_seq;
+
+        const indent_len = usage.len;
+        const max_line_len = 80;
+        var len_prev_lines = 0;
+
+        for (self.items) |item| {
+            if (usage.len + " ".len + item.len - len_prev_lines > max_line_len) {
+                len_prev_lines = usage.len;
+                usage = usage ++ "\n" ++ " " ** indent_len;
+            }
+            usage = usage ++ " " ++ item;
+        }
+
+        return usage;
+    }
+};
+
+fn generateUsage(
+    comptime Flags: type,
+    comptime info: meta.FlagsInfo,
+    comptime command_seq: []const u8,
+) []const u8 {
+    var usage = Usage{};
+
+    const flag_formats = getFormats(Flags);
+    for (info.flags) |flag| {
+        var flag_usage: []const u8 = "";
+
+        if (flag.switch_char) |switch_char| {
+            flag_usage = flag_usage ++ std.fmt.comptimePrint("-{c} | ", .{switch_char});
+        }
+
+        flag_usage = flag_usage ++ flag.flag_name;
+
+        if (flag.type != bool) {
+            const format = @field(flag_formats, flag.field_name) orelse
+                "<" ++ flag.flag_name[2..] ++ ">"; // chop off the leading "--"
+
+            flag_usage = flag_usage ++ " " ++ format;
+        }
+
+        if (flag.type == bool or @typeInfo(flag.type) == .Optional or flag.default_value != null) {
+            flag_usage = "[" ++ flag_usage ++ "]";
+        }
+
+        usage.add(flag_usage);
+    }
+
+    for (info.positionals) |arg| {
+        const arg_usage = if (@typeInfo(arg.type) == .Optional or arg.default_value != null)
+            "[" ++ arg.arg_name ++ "]"
+        else
+            arg.arg_name;
+
+        usage.add(arg_usage);
+    }
+
+    if (info.subcommands.len > 0) {
+        usage.add("<command>");
+    }
+
+    return usage.render(command_seq) ++ "\n";
+}
+
+fn Formats(comptime T: type) type {
+    return std.enums.EnumFieldStruct(
+        std.meta.FieldEnum(T),
+        ?[]const u8,
+        @as(?[]const u8, null),
+    );
+}
+
+fn getFormats(comptime S: type) Formats(S) {
+    var formats: Formats(S) = .{};
+
+    if (@hasDecl(S, "formats")) {
+        const F = @TypeOf(S.formats);
+        if (@typeInfo(F) != .Struct) meta.compileError(
+            "formats is not a struct value: {s}",
+            .{@typeName(F)},
+        );
+
+        for (@typeInfo(F).Struct.fields) |format| {
+            if (!@hasField(S, format.name)) meta.compileError(
+                "format name does not match any field: {s}",
+                .{format.name},
+            );
+
+            const format_val = @field(S.formats, format.name);
+            @field(formats, format.name) =
+                @as([]const u8, format_val); // format must be a string
+        }
+    }
+
+    return formats;
 }
 
 test generate {
