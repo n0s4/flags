@@ -59,8 +59,8 @@ pub fn info(comptime Flags: type) FlagsInfo {
             const switch_char = std.math.cast(u8, switch_val) orelse {
                 compileError("switch value is not a character: {any}", .{switch_val});
             };
-            if (!std.ascii.isAlphabetic(switch_char)) {
-                compileError("switch character is not a letter: {c}", .{switch_char});
+            if (!std.ascii.isAlphanumeric(switch_char)) {
+                compileError("switch character is not a letter or digit: {c}", .{switch_char});
             }
 
             for (switch_fields[field_index + 1 ..]) |other_field| {
