@@ -23,11 +23,29 @@ const Section = struct {
 
     /// Render the help section to a comptime string
     pub fn render(comptime section: Section) []const u8 {
+        const max_line_len: usize = 85;
         comptime var str: []const u8 = "\n" ++ fmt_green_bold ++ section.title ++ ":" ++ cons.ansi_end ++ "\n\n";
         for (section.items) |item| {
             str = str ++ indent ++ fmt_white_bold ++ item.name ++ cons.ansi_end;
             if (item.description) |description| {
-                str = str ++ indent ++ " " ** (section.max_name_len - item.name.len) ++ description;
+                str = str ++ indent ++ " " ** (section.max_name_len - item.name.len);
+
+                // Automatically line-wrap the description, with a base indent at the current column
+                const base_indent: usize = indent.len + section.max_name_len;
+                comptime var col: usize = base_indent;
+                comptime var words = std.mem.tokenize(u8, description, " \r\n");
+                inline while (words.next()) |word| {
+                    if (col + word.len > max_line_len) {
+                        str = str ++ "\n" ++ indent ** 2 ++ " " ** (section.max_name_len);
+                        col = base_indent - 1;
+                    }
+                    if (col > base_indent) {
+                        str = str ++ " " ++ word;
+                    } else {
+                        str = str ++ word;
+                    }
+                    col += word.len + 1;
+                }
             }
             str = str ++ "\n";
         }
@@ -157,7 +175,7 @@ const Usage = struct {
         const ansi_codes_len = fmt_green_bold.len + cons.ansi_end.len;
 
         const indent_len = usage.len - ansi_codes_len;
-        const max_line_len = 80;
+        const max_line_len = 85;
         var len_prev_lines = 0;
 
         for (self.items) |item| {
@@ -304,7 +322,7 @@ test generate {
         };
 
         pub const descriptions = .{
-            .force = "Do it more forcefully",
+            .force = "Do it more forcefully. This is a very long description so that a line wrap is inevitable.",
             .target = "Where to aim the laser",
             .choice = "Pick one",
         };
@@ -321,7 +339,8 @@ test generate {
         usage_str = usage_str ++ fmt_magenta_bold ++ "This command is for testing purposes only!" ++ cons.ansi_end ++ "\n";
 
         const help_options = "\n" ++ fmt_green_bold ++ "Options:" ++ cons.ansi_end ++ "\n\n";
-        comptime var opts_str: []const u8 = "  " ++ fmt_white_bold ++ "-f, --force" ++ cons.ansi_end ++ "   Do it more forcefully\n";
+        comptime var opts_str: []const u8 = "  " ++ fmt_white_bold ++ "-f, --force" ++ cons.ansi_end ++ "   Do it more forcefully. ";
+        opts_str = opts_str ++ "This is a very long description so that a line\n                wrap is inevitable.\n";
         opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "-t, --target" ++ cons.ansi_end ++ "  Where to aim the laser\n";
         opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "--choice" ++ cons.ansi_end ++ "      Pick one\n";
         opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  one" ++ cons.ansi_end ++ "         First one\n";
