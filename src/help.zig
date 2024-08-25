@@ -34,7 +34,13 @@ const Section = struct {
                 const base_indent: usize = indent.len + section.max_name_len;
                 comptime var col: usize = base_indent;
                 comptime var words = std.mem.tokenize(u8, description, " \r\n");
-                inline while (words.next()) |word| {
+
+                // The branches here add up quickly; the limit must be increased for any
+                // reasonably-sized descriptions Note that the default is 1000.
+                // This may increase compilation times, but if that was a concern, you'd
+                // be using a different library.
+                @setEvalBranchQuota(100000);
+                while (words.next()) |word| {
                     if (col + word.len > section.max_line_len) {
                         str = str ++ "\n" ++ indent ** 2 ++ " " ** (section.max_name_len);
                         col = base_indent - 1;
