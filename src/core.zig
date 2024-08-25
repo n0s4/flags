@@ -83,13 +83,14 @@ pub fn parse(
     args: *ArgIterator,
     comptime Flags: type,
     comptime command_seq: []const u8,
+    comptime max_line_len: usize,
     trailing_handler: TrailingHandler,
 ) !Flags {
     const info = meta.info(Flags);
     const help_message: []const u8 = if (@hasDecl(Flags, "help"))
         Flags.help // must be a string
     else
-        comptime help.generate(Flags, info, command_seq);
+        comptime help.generate(Flags, info, command_seq, max_line_len);
 
     // If we error out, print the help message
     errdefer printHelp(help_message);
@@ -164,6 +165,7 @@ pub fn parse(
                     args,
                     cmd.type,
                     command_seq ++ " " ++ cmd.command_name,
+                    max_line_len,
                     trailing_handler,
                 );
                 flags.command = @unionInit(

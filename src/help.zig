@@ -11,6 +11,7 @@ const Section = struct {
     title: []const u8,
     items: []const Item = &.{},
     max_name_len: usize = 0,
+    max_line_len: usize = 80,
 
     /// A help item for a flag, command etc.
     const Item = struct {
@@ -23,7 +24,6 @@ const Section = struct {
 
     /// Render the help section to a comptime string
     pub fn render(comptime section: Section) []const u8 {
-        const max_line_len: usize = 85;
         comptime var str: []const u8 = "\n" ++ fmt_green_bold ++ section.title ++ ":" ++ cons.ansi_end ++ "\n\n";
         for (section.items) |item| {
             str = str ++ indent ++ fmt_white_bold ++ item.name ++ cons.ansi_end;
@@ -35,7 +35,7 @@ const Section = struct {
                 comptime var col: usize = base_indent;
                 comptime var words = std.mem.tokenize(u8, description, " \r\n");
                 inline while (words.next()) |word| {
-                    if (col + word.len > max_line_len) {
+                    if (col + word.len > section.max_line_len) {
                         str = str ++ "\n" ++ indent ** 2 ++ " " ** (section.max_name_len);
                         col = base_indent - 1;
                     }
@@ -59,9 +59,9 @@ const Section = struct {
 };
 
 /// Print the help (usage) message for the application
-pub fn printUsage(comptime Flags: type, comptime command_name: ?[]const u8, writer: anytype) !void {
+pub fn printUsage(comptime Flags: type, comptime command_name: ?[]const u8, comptime max_line_len: usize, writer: anytype) !void {
     const name: []const u8 = comptime command_name orelse meta.commandName(Flags);
-    const help: []const u8 = comptime generate(Flags, meta.info(Flags), name);
+    const help: []const u8 = comptime generate(Flags, meta.info(Flags), name, max_line_len);
     try writer.writeAll(help);
 }
 
@@ -70,8 +70,9 @@ pub fn generate(
     comptime Flags: type,
     comptime info: meta.FlagsInfo,
     comptime command_seq: []const u8,
+    comptime max_line_len: usize,
 ) []const u8 {
-    comptime var help: []const u8 = generateUsage(Flags, info, command_seq);
+    comptime var help: []const u8 = generateUsage(Flags, info, command_seq, max_line_len);
 
     if (@hasDecl(Flags, "description")) {
         const description: []const u8 = Flags.description; // must be a string
@@ -79,7 +80,7 @@ pub fn generate(
     }
 
     const flag_descriptions = getDescriptions(Flags);
-    var options = Section{ .title = "Options" };
+    var options = Section{ .title = "Options", .max_line_len = max_line_len };
     for (info.flags) |flag| {
         options.add(.{
             .name = if (flag.switch_char) |ch|
@@ -109,7 +110,7 @@ pub fn generate(
 
     if (info.positionals.len > 0) {
         const pos_descriptions = getDescriptions(std.meta.FieldType(Flags, .positional));
-        var arguments = Section{ .title = "Arguments" };
+        var arguments = Section{ .title = "Arguments", .max_line_len = max_line_len };
         for (info.positionals) |pos| arguments.add(.{
             .name = pos.arg_name,
             .description = @field(pos_descriptions, pos.field_name),
@@ -119,7 +120,7 @@ pub fn generate(
 
     if (info.subcommands.len > 0) {
         const sub_descriptions = getDescriptions(std.meta.FieldType(Flags, .command));
-        var commands = Section{ .title = "Commands" };
+        var commands = Section{ .title = "Commands", .max_line_len = max_line_len };
         for (info.subcommands) |cmd| commands.add(.{
             .name = cmd.command_name,
             .description = @field(sub_descriptions, cmd.field_name),
@@ -165,6 +166,7 @@ fn getDescriptions(comptime S: type) Descriptions(S) {
 
 const Usage = struct {
     items: []const []const u8 = &.{},
+    max_line_len: usize = 80,
 
     fn add(self: *Usage, item: []const u8) void {
         self.items = self.items ++ .{item};
@@ -175,12 +177,11 @@ const Usage = struct {
         const ansi_codes_len = fmt_green_bold.len + cons.ansi_end.len;
 
         const indent_len = usage.len - ansi_codes_len;
-        const max_line_len = 85;
         var len_prev_lines = 0;
 
         for (self.items) |item| {
             const cur_len = usage.len - ansi_codes_len;
-            if (cur_len + " ".len + item.len - len_prev_lines > max_line_len) {
+            if (cur_len + " ".len + item.len - len_prev_lines > self.max_line_len) {
                 len_prev_lines = cur_len;
                 usage = usage ++ "\n" ++ " " ** indent_len;
             }
@@ -195,8 +196,9 @@ fn generateUsage(
     comptime Flags: type,
     comptime info: meta.FlagsInfo,
     comptime command_seq: []const u8,
+    comptime max_line_len: usize,
 ) []const u8 {
-    var usage = Usage{};
+    var usage = Usage{ .max_line_len = max_line_len };
 
     const flag_formats = getFormats(Flags);
     for (info.flags) |flag| {
@@ -356,7 +358,7 @@ test generate {
         cmds_str = cmds_str ++ "  " ++ fmt_white_bold ++ "add" ++ cons.ansi_end ++ "   Add something to the thing\n";
 
         const help_text = help_usage ++ usage_str ++ help_options ++ opts_str ++ help_args ++ args_str ++ help_commands ++ cmds_str;
-        try std.testing.expectEqualStrings(help_text, comptime generate(Flags, meta.info(Flags), "test"));
+        try std.testing.expectEqualStrings(help_text, comptime generate(Flags, meta.info(Flags), "test", 85));
     }
 
     {
@@ -367,6 +369,6 @@ test generate {
         usage_str = usage_str ++ "  " ++ fmt_white_bold ++ "-h, --help" ++ cons.ansi_end ++ "  Show this help and exit\n";
 
         const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
-        try std.testing.expectEqualStrings(usage_str, comptime generate(Init, meta.info(Init), "test init"));
+        try std.testing.expectEqualStrings(usage_str, comptime generate(Init, meta.info(Init), "test init", 85));
     }
 }

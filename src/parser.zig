@@ -15,6 +15,8 @@ pub const ParseOptions = struct {
     /// The name of the command used to run the program, should be your executable name.
     /// If omitted, the name of the Command type will be used.
     command_name: ?[]const u8 = null,
+    /// The maximum line length (in characters) to wrap long descriptions at
+    max_line_len: usize = 80,
 };
 
 /// A TrailingHandler that causes a printError error when a trailing argument is passed.
@@ -175,10 +177,10 @@ pub fn parseWithTrailingHandler(
     if (options.skip_first_arg) {
         if (!args.skip()) {
             printError("expected at least 1 argument", .{});
-            try help.printUsage(Command, command_name, std.io.getStdOut().writer());
+            try help.printUsage(Command, command_name, options.max_line_len, std.io.getStdOut().writer());
             return error.NoArguments;
         }
     }
 
-    return core.parse(args, Command, command_name, trailing_handler);
+    return core.parse(args, Command, command_name, options.max_line_len, trailing_handler);
 }
