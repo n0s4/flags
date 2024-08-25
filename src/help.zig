@@ -2,9 +2,9 @@ const std = @import("std");
 const meta = @import("meta.zig");
 const cons = @import("console.zig");
 
-const fmt_green_bold: []const u8 = cons.ansi ++ cons.fg_green ++ cons.text_bold;
-const fmt_white_bold: []const u8 = cons.ansi ++ cons.fg_white ++ cons.text_bold;
-const fmt_magenta_bold: []const u8 = cons.ansi ++ cons.fg_magenta ++ cons.text_bold;
+const fmt_green_bold: []const u8 = cons.fg_green ++ cons.text_bold;
+const fmt_white_bold: []const u8 = cons.fg_white ++ cons.text_bold;
+const fmt_magenta_bold: []const u8 = cons.fg_magenta ++ cons.text_bold;
 
 /// A help section with a heading and a list of items.
 const Section = struct {
@@ -154,14 +154,16 @@ const Usage = struct {
 
     pub fn render(self: Usage, comptime command_seq: []const u8) []const u8 {
         var usage: []const u8 = fmt_green_bold ++ "Usage: " ++ cons.ansi_end ++ command_seq;
+        const ansi_codes_len = fmt_green_bold.len + cons.ansi_end.len;
 
-        const indent_len = usage.len;
+        const indent_len = usage.len - ansi_codes_len;
         const max_line_len = 80;
         var len_prev_lines = 0;
 
         for (self.items) |item| {
-            if (usage.len + " ".len + item.len - len_prev_lines > max_line_len) {
-                len_prev_lines = usage.len;
+            const cur_len = usage.len - ansi_codes_len;
+            if (cur_len + " ".len + item.len - len_prev_lines > max_line_len) {
+                len_prev_lines = cur_len;
                 usage = usage ++ "\n" ++ " " ** indent_len;
             }
             usage = usage ++ " " ++ item;
