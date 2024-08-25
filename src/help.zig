@@ -313,8 +313,8 @@ test generate {
     {
         const help_usage = fmt_green_bold ++ "Usage: " ++ cons.ansi_end;
         comptime var usage_str: []const u8 =
-            \\test [-f | --force] [-t | --target <target>]
-            \\                         --choice <choice> <FILE> <command>
+            \\test [-f | --force] [-t | --target <target>] --choice <choice> <FILE>
+            \\            <command>
             \\
             \\
         ;
