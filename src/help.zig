@@ -1,11 +1,17 @@
 const std = @import("std");
 const meta = @import("meta.zig");
+const cons = @import("console.zig");
+
+const fmt_green_bold: []const u8 = cons.fg_green ++ cons.text_bold;
+const fmt_white_bold: []const u8 = cons.fg_white ++ cons.text_bold;
+const fmt_magenta_bold: []const u8 = cons.fg_magenta ++ cons.text_bold;
 
 /// A help section with a heading and a list of items.
 const Section = struct {
     title: []const u8,
     items: []const Item = &.{},
     max_name_len: usize = 0,
+    max_line_len: usize = 80,
 
     /// A help item for a flag, command etc.
     const Item = struct {
@@ -16,39 +22,71 @@ const Section = struct {
 
     const indent = "  ";
 
+    /// Render the help section to a comptime string
     pub fn render(comptime section: Section) []const u8 {
-        comptime var str: []const u8 = "\n" ++ section.title ++ ":\n\n";
+        comptime var str: []const u8 = "\n" ++ fmt_green_bold ++ section.title ++ ":" ++ cons.ansi_end ++ "\n\n";
         for (section.items) |item| {
-            str = str ++ indent ++ item.name;
+            str = str ++ indent ++ fmt_white_bold ++ item.name ++ cons.ansi_end;
             if (item.description) |description| {
-                str = str ++ indent ++ " " ** (section.max_name_len - item.name.len) ++ description;
+                str = str ++ indent ++ " " ** (section.max_name_len - item.name.len);
+
+                // Automatically line-wrap the description, with a base indent at the current column
+                const base_indent: usize = indent.len + section.max_name_len;
+                comptime var col: usize = base_indent;
+                comptime var words = std.mem.tokenize(u8, description, " \r\n");
+
+                // The branches here add up quickly; the limit must be increased for any
+                // reasonably-sized descriptions Note that the default is 1000.
+                // This may increase compilation times, but if that was a concern, you'd
+                // be using a different library.
+                @setEvalBranchQuota(100000);
+                while (words.next()) |word| {
+                    if (col + word.len > section.max_line_len) {
+                        str = str ++ "\n" ++ indent ** 2 ++ " " ** (section.max_name_len);
+                        col = base_indent - 1;
+                    }
+                    if (col > base_indent) {
+                        str = str ++ " " ++ word;
+                    } else {
+                        str = str ++ word;
+                    }
+                    col += word.len + 1;
+                }
             }
             str = str ++ "\n";
         }
         return str;
     }
 
-    pub fn add(section: *Section, item: Item) void {
+    pub fn add(comptime section: *Section, comptime item: Item) void {
         section.max_name_len = @max(section.max_name_len, item.name.len);
         section.items = section.items ++ .{item};
     }
 };
 
+/// Print the help (usage) message for the application
+pub fn printUsage(comptime Flags: type, comptime command_name: ?[]const u8, comptime max_line_len: usize, writer: anytype) !void {
+    const name: []const u8 = comptime command_name orelse meta.commandName(Flags);
+    const help: []const u8 = comptime generate(Flags, meta.info(Flags), name, max_line_len);
+    try writer.writeAll(help);
+}
+
+/// Generage help (usage) message string for the application
 pub fn generate(
     comptime Flags: type,
     comptime info: meta.FlagsInfo,
     comptime command_seq: []const u8,
+    comptime max_line_len: usize,
 ) []const u8 {
-    // TODO: generate usage
-    comptime var help: []const u8 = generateUsage(Flags, info, command_seq);
+    comptime var help: []const u8 = generateUsage(Flags, info, command_seq, max_line_len);
 
     if (@hasDecl(Flags, "description")) {
         const description: []const u8 = Flags.description; // must be a string
-        help = help ++ "\n" ++ description ++ "\n";
+        help = help ++ "\n" ++ fmt_magenta_bold ++ description ++ cons.ansi_end ++ "\n";
     }
 
     const flag_descriptions = getDescriptions(Flags);
-    var options = Section{ .title = "Options" };
+    var options = Section{ .title = "Options", .max_line_len = max_line_len };
     for (info.flags) |flag| {
         options.add(.{
             .name = if (flag.switch_char) |ch|
@@ -78,7 +116,7 @@ pub fn generate(
 
     if (info.positionals.len > 0) {
         const pos_descriptions = getDescriptions(std.meta.FieldType(Flags, .positional));
-        var arguments = Section{ .title = "Arguments" };
+        var arguments = Section{ .title = "Arguments", .max_line_len = max_line_len };
         for (info.positionals) |pos| arguments.add(.{
             .name = pos.arg_name,
             .description = @field(pos_descriptions, pos.field_name),
@@ -88,7 +126,7 @@ pub fn generate(
 
     if (info.subcommands.len > 0) {
         const sub_descriptions = getDescriptions(std.meta.FieldType(Flags, .command));
-        var commands = Section{ .title = "Commands" };
+        var commands = Section{ .title = "Commands", .max_line_len = max_line_len };
         for (info.subcommands) |cmd| commands.add(.{
             .name = cmd.command_name,
             .description = @field(sub_descriptions, cmd.field_name),
@@ -134,21 +172,23 @@ fn getDescriptions(comptime S: type) Descriptions(S) {
 
 const Usage = struct {
     items: []const []const u8 = &.{},
+    max_line_len: usize = 80,
 
     fn add(self: *Usage, item: []const u8) void {
         self.items = self.items ++ .{item};
     }
 
     pub fn render(self: Usage, comptime command_seq: []const u8) []const u8 {
-        var usage: []const u8 = "Usage: " ++ command_seq;
+        var usage: []const u8 = fmt_green_bold ++ "Usage: " ++ cons.ansi_end ++ command_seq;
+        const ansi_codes_len = fmt_green_bold.len + cons.ansi_end.len;
 
-        const indent_len = usage.len;
-        const max_line_len = 80;
+        const indent_len = usage.len - ansi_codes_len;
         var len_prev_lines = 0;
 
         for (self.items) |item| {
-            if (usage.len + " ".len + item.len - len_prev_lines > max_line_len) {
-                len_prev_lines = usage.len;
+            const cur_len = usage.len - ansi_codes_len;
+            if (cur_len + " ".len + item.len - len_prev_lines > self.max_line_len) {
+                len_prev_lines = cur_len;
                 usage = usage ++ "\n" ++ " " ** indent_len;
             }
             usage = usage ++ " " ++ item;
@@ -162,8 +202,9 @@ fn generateUsage(
     comptime Flags: type,
     comptime info: meta.FlagsInfo,
     comptime command_seq: []const u8,
+    comptime max_line_len: usize,
 ) []const u8 {
-    var usage = Usage{};
+    var usage = Usage{ .max_line_len = max_line_len };
 
     const flag_formats = getFormats(Flags);
     for (info.flags) |flag| {
@@ -289,48 +330,51 @@ test generate {
         };
 
         pub const descriptions = .{
-            .force = "Do it more forcefully",
+            .force = "Do it more forcefully. This is a very long description so that a line wrap is inevitable.",
             .target = "Where to aim the laser",
             .choice = "Pick one",
         };
     };
 
-    try std.testing.expectEqualStrings(
-        \\Usage: test [options]
-        \\
-        \\This command is for testing purposes only!
-        \\
-        \\Options:
-        \\
-        \\  -f, --force   Do it more forcefully
-        \\  -t, --target  Where to aim the laser
-        \\  --choice      Pick one
-        \\    one         First one
-        \\    two         Second one
-        \\    three       Third one
-        \\  -h, --help    Show this help and exit
-        \\
-        \\Arguments:
-        \\
-        \\  <FILE>  The file name to use
-        \\
-        \\Commands:
-        \\
-        \\  init  Make a new thing
-        \\  add   Add something to the thing
-        \\
-    , comptime generate(Flags, meta.info(Flags), "test"));
+    {
+        const help_usage = fmt_green_bold ++ "Usage: " ++ cons.ansi_end;
+        comptime var usage_str: []const u8 =
+            \\test [-f | --force] [-t | --target <target>] --choice <choice> <FILE>
+            \\            <command>
+            \\
+            \\
+        ;
+        usage_str = usage_str ++ fmt_magenta_bold ++ "This command is for testing purposes only!" ++ cons.ansi_end ++ "\n";
 
-    const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
-    try std.testing.expectEqualStrings(
-        \\Usage: test init [options]
-        \\
-        \\Make something new!
-        \\
-        \\Options:
-        \\
-        \\  --quiet     shhhhh
-        \\  -h, --help  Show this help and exit
-        \\
-    , comptime generate(Init, meta.info(Init), "test init"));
+        const help_options = "\n" ++ fmt_green_bold ++ "Options:" ++ cons.ansi_end ++ "\n\n";
+        comptime var opts_str: []const u8 = "  " ++ fmt_white_bold ++ "-f, --force" ++ cons.ansi_end ++ "   Do it more forcefully. ";
+        opts_str = opts_str ++ "This is a very long description so that a line\n                wrap is inevitable.\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "-t, --target" ++ cons.ansi_end ++ "  Where to aim the laser\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "--choice" ++ cons.ansi_end ++ "      Pick one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  one" ++ cons.ansi_end ++ "         First one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  two" ++ cons.ansi_end ++ "         Second one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  three" ++ cons.ansi_end ++ "       Third one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "-h, --help" ++ cons.ansi_end ++ "    Show this help and exit\n";
+
+        const help_args = "\n" ++ fmt_green_bold ++ "Arguments:" ++ cons.ansi_end ++ "\n\n";
+        const args_str = "  " ++ fmt_white_bold ++ "<FILE>" ++ cons.ansi_end ++ "  The file name to use\n";
+
+        const help_commands = "\n" ++ fmt_green_bold ++ "Commands:" ++ cons.ansi_end ++ "\n\n";
+        comptime var cmds_str: []const u8 = "  " ++ fmt_white_bold ++ "init" ++ cons.ansi_end ++ "  Make a new thing\n";
+        cmds_str = cmds_str ++ "  " ++ fmt_white_bold ++ "add" ++ cons.ansi_end ++ "   Add something to the thing\n";
+
+        const help_text = help_usage ++ usage_str ++ help_options ++ opts_str ++ help_args ++ args_str ++ help_commands ++ cmds_str;
+        try std.testing.expectEqualStrings(help_text, comptime generate(Flags, meta.info(Flags), "test", 85));
+    }
+
+    {
+        comptime var usage_str: []const u8 = fmt_green_bold ++ "Usage: " ++ cons.ansi_end ++ "test init [--quiet]\n";
+        usage_str = usage_str ++ "\n" ++ fmt_magenta_bold ++ "Make something new!" ++ cons.ansi_end ++ "\n";
+        usage_str = usage_str ++ "\n" ++ fmt_green_bold ++ "Options:" ++ cons.ansi_end ++ "\n\n";
+        usage_str = usage_str ++ "  " ++ fmt_white_bold ++ "--quiet" ++ cons.ansi_end ++ "     shhhhh\n";
+        usage_str = usage_str ++ "  " ++ fmt_white_bold ++ "-h, --help" ++ cons.ansi_end ++ "  Show this help and exit\n";
+
+        const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
+        try std.testing.expectEqualStrings(usage_str, comptime generate(Init, meta.info(Init), "test init", 85));
+    }
 }

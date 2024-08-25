@@ -1,9 +1,10 @@
 const std = @import("std");
 const meta = @import("meta.zig");
 const core = @import("core.zig");
+const help = @import("help.zig");
 
 pub const TrailingHandler = core.TrailingHandler;
-pub const fatal = core.fatal;
+pub const printError = core.printError;
 
 const ArgIterator = std.process.ArgIterator;
 const Allocator = std.mem.Allocator;
@@ -14,15 +15,16 @@ pub const ParseOptions = struct {
     /// The name of the command used to run the program, should be your executable name.
     /// If omitted, the name of the Command type will be used.
     command_name: ?[]const u8 = null,
+    /// The maximum line length (in characters) to wrap long descriptions at
+    max_line_len: usize = 80,
 };
 
-/// A TrailingHandler that causes a fatal error when a trailing argument is passed.
+/// A TrailingHandler that causes a printError error when a trailing argument is passed.
 const NoTrailing = struct {
-    pub const NoError = error{};
-
-    fn errorOnTrailing(context: *anyopaque, arg: []const u8) NoError!void {
+    fn errorOnTrailing(context: *anyopaque, arg: []const u8) !void {
         _ = context;
-        fatal("unexpected argument: '{s}'", .{arg});
+        printError("unexpected argument: '{s}'", .{arg});
+        return error.BadArgument;
     }
 
     pub fn handler() TrailingHandler {
@@ -35,13 +37,13 @@ const NoTrailing = struct {
 
 /// This does not allow any trailing arguments to be passed.
 /// If you need to take trailing arguments, use `parseWithBuffer` or `parseWithAllocator`.
-pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) Command {
+pub fn parse(args: *ArgIterator, comptime Command: type, comptime options: ParseOptions) !Command {
     return parseWithTrailingHandler(
         NoTrailing.handler(),
         args,
         Command,
         options,
-    ) catch unreachable;
+    );
 }
 
 /// Combines `Command` with an `args` field which stores trailing arguments.
@@ -170,29 +172,15 @@ pub fn parseWithTrailingHandler(
     comptime Command: type,
     comptime options: ParseOptions,
 ) !Command {
+    const command_name = options.command_name orelse comptime meta.commandName(Command);
+
     if (options.skip_first_arg) {
-        if (!args.skip()) fatal("expected at least 1 argument", .{});
+        if (!args.skip()) {
+            printError("expected at least 1 argument", .{});
+            try help.printUsage(Command, command_name, options.max_line_len, std.io.getStdOut().writer());
+            return error.NoArguments;
+        }
     }
 
-    const command_name = options.command_name orelse comptime commandName(Command);
-    return core.parse(args, Command, command_name, trailing_handler);
-}
-
-// Converts Type name "namespace.MyCommand" to "my-command"
-fn commandName(comptime Command: type) []const u8 {
-    comptime var base_name: []const u8 = @typeName(Command);
-    // Trim off the leading namespaces - separated by dots.
-    if (std.mem.lastIndexOfScalar(u8, base_name, '.')) |last_dot_idx| {
-        base_name = base_name[last_dot_idx + 1 ..];
-    }
-
-    comptime var cmd_name: []const u8 = &.{std.ascii.toLower(base_name[0])};
-    for (base_name[1..]) |ch| {
-        cmd_name = cmd_name ++ if (std.ascii.isUpper(ch))
-            .{ '-', std.ascii.toLower(ch) }
-        else
-            .{ch};
-    }
-
-    return cmd_name;
+    return core.parse(args, Command, command_name, options.max_line_len, trailing_handler);
 }

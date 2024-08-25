@@ -126,6 +126,25 @@ pub fn info(comptime Flags: type) FlagsInfo {
     return command;
 }
 
+// Converts Type name "namespace.MyCommand" to "my-command"
+pub fn commandName(comptime Command: type) []const u8 {
+    comptime var base_name: []const u8 = @typeName(Command);
+    // Trim off the leading namespaces - separated by dots.
+    if (std.mem.lastIndexOfScalar(u8, base_name, '.')) |last_dot_idx| {
+        base_name = base_name[last_dot_idx + 1 ..];
+    }
+
+    comptime var cmd_name: []const u8 = &.{std.ascii.toLower(base_name[0])};
+    for (base_name[1..]) |ch| {
+        cmd_name = cmd_name ++ if (std.ascii.isUpper(ch))
+            .{ '-', std.ascii.toLower(ch) }
+        else
+            .{ch};
+    }
+
+    return cmd_name;
+}
+
 pub fn compileError(comptime fmt: []const u8, args: anytype) void {
     @compileError("(flags) " ++ std.fmt.comptimePrint(fmt, args));
 }

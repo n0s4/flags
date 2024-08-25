@@ -8,7 +8,9 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa.allocator());
     defer args.deinit();
 
-    const result = flags.parse(&args, Overview, .{});
+    const result = flags.parse(&args, Overview, .{}) catch {
+        std.process.exit(1);
+    };
 
     try std.json.stringify(
         result,
