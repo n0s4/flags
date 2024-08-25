@@ -1,10 +1,17 @@
 const std = @import("std");
 const help = @import("help.zig");
 const meta = @import("meta.zig");
+const cons = @import("console.zig");
 
 const compileError = meta.compileError;
 
 const ArgIterator = std.process.ArgIterator;
+
+const FlagsMeta = struct {
+    flags: type,
+    info: meta.FlagsInfo,
+    name: []const u8,
+};
 
 pub const TrailingHandler = struct {
     context: *anyopaque,
@@ -35,7 +42,7 @@ fn PositionalParser(comptime positionals: []const meta.Positional) type {
                     self.positional_count += 1;
                     const pos = positionals[i];
                     const T = meta.unwrapOptional(pos.type);
-                    @field(flags.positional, pos.field_name) = parseValue(T, arg);
+                    @field(flags.positional, pos.field_name) = try parseValue(T, arg);
                 },
                 else => unreachable,
             }
@@ -43,18 +50,32 @@ fn PositionalParser(comptime positionals: []const meta.Positional) type {
     };
 }
 
-/// Prints the formatted error message to stderr and exits with status code 1.
-pub fn fatal(comptime message: []const u8, args: anytype) noreturn {
-    std.io.getStdErr().writer()
-        .print("error: " ++ message ++ ".\n", args) catch {};
+/// Print an error message
+pub fn printError(comptime fmt: []const u8, args: anytype) void {
+    cons.printStyled(std.io.getStdOut().writer(), .{ .fg_color = .Red, .bold = true }, "\nError: ", .{});
+    cons.printColor(std.io.getStdOut().writer(), .White, fmt, args);
+    cons.printColor(std.io.getStdOut().writer(), .White, "\n", .{});
+}
+
+/// Prints the help (usage) message to stdout
+pub fn printHelp(help_message: []const u8) void {
+    const stdout = std.io.getStdOut().writer();
+    stdout.print("\n{s}\n", .{help_message}) catch |err| {
+        const e = cons.ansi ++ cons.fg_red ++ cons.text_bold ++ "ERROR: " ++ cons.ansi_end;
+        std.debug.print(e ++ "Could not write help to stdout: {!}", .{err});
+        std.process.exit(1);
+    };
+}
+
+/// Prints the help (usage) message to stdout and exits with error code 1
+pub fn printFatalError(comptime fmt: []const u8, args: anytype) noreturn {
+    printError(fmt, args);
     std.process.exit(1);
 }
 
-pub fn printHelp(help_message: []const u8) noreturn {
-    std.io.getStdOut().writeAll(help_message) catch |err| {
-        fatal("could not write help to stdout: {!}", .{err});
-    };
-
+/// Prints the help (usage) message to stdout and exits with success code 0
+pub fn printHelpAndExit(help_message: []const u8) noreturn {
+    printHelp(help_message);
     std.process.exit(0);
 }
 
@@ -70,16 +91,22 @@ pub fn parse(
     else
         comptime help.generate(Flags, info, command_seq);
 
+    // If we error out, print the help message
+    errdefer printHelp(help_message);
+
     var flags: Flags = undefined;
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
 
     var positional_parser = PositionalParser(info.positionals).init(trailing_handler);
 
     next_arg: while (args.next()) |arg| {
-        if (arg.len == 0) fatal("empty argument", .{});
+        if (arg.len == 0) {
+            printError("empty argument", .{});
+            return error.EmptyArgument;
+        }
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            printHelp(help_message);
+            printHelpAndExit(help_message);
         }
 
         if (std.mem.eql(u8, arg, "--")) {
@@ -92,16 +119,20 @@ pub fn parse(
         if (std.mem.startsWith(u8, arg, "--")) {
             inline for (info.flags) |flag| {
                 if (std.mem.eql(u8, arg, flag.flag_name)) {
-                    @field(flags, flag.field_name) = parseOption(flag.type, args, flag.flag_name);
+                    @field(flags, flag.field_name) = try parseOption(flag.type, args, flag.flag_name);
                     @field(passed, flag.field_name) = true;
                     continue :next_arg;
                 }
             }
-            fatal("unrecognized flag: {s}", .{arg});
+            printError("unrecognized flag: {s}", .{arg});
+            return error.UnknownArgument;
         }
 
         if (std.mem.startsWith(u8, arg, "-")) {
-            if (arg.len == 1) fatal("unrecognized argument: '-'", .{});
+            if (arg.len == 1) {
+                printError("unrecognized argument: '-'", .{});
+                return error.UnknownArgument;
+            }
             const switch_set = arg[1..];
             next_switch: for (switch_set, 0..) |ch, i| {
                 inline for (info.flags) |flag| if (flag.switch_char) |switch_char| {
@@ -109,9 +140,10 @@ pub fn parse(
                         // Removing this check would allow formats like:
                         // `$ <cmd> -abc value-for-a value-for-b value-for-c`
                         if (flag.type != bool and i < switch_set.len - 1) {
-                            fatal("expected argument after switch: {c}", .{switch_char});
+                            printError("expected argument after switch: {c}", .{switch_char});
+                            return error.MissingArgumentValue;
                         }
-                        @field(flags, flag.field_name) = parseOption(
+                        @field(flags, flag.field_name) = try parseOption(
                             flag.type,
                             args,
                             &.{ '-', switch_char },
@@ -120,7 +152,8 @@ pub fn parse(
                         continue :next_switch;
                     }
                 };
-                fatal("unrecognized switch: {c}", .{ch});
+                printError("unrecognized switch: {c}", .{ch});
+                return error.UnknownArgument;
             }
             continue :next_arg;
         }
@@ -151,7 +184,10 @@ pub fn parse(
             switch (@typeInfo(flag.type)) {
             .Bool => false,
             .Optional => null,
-            else => fatal("missing required flag: {s}", .{flag.flag_name}),
+            else => {
+                printError("missing required flag: {s}", .{flag.flag_name});
+                return error.MissingRequiredFlag;
+            },
         };
     };
 
@@ -160,38 +196,51 @@ pub fn parse(
             @field(flags.positional, pos.field_name) = meta.defaultValue(pos) orelse
                 switch (@typeInfo(pos.type)) {
                 .Optional => null,
-                else => fatal("missing required argument: {s}", .{pos.arg_name}),
+                else => {
+                    printError("missing required argument: {s}", .{pos.arg_name});
+                    return error.MissingRequiredPositional;
+                },
             };
         }
     }
 
     if (info.subcommands.len > 0 and !passed.command) {
-        fatal("expected subcommand", .{});
+        printError("expected subcommand", .{});
+        return error.MissingRequiredCommand;
     }
 
     return flags;
 }
 
 /// Used for parsing both flags and switches.
-fn parseOption(comptime T: type, args: *ArgIterator, comptime opt_name: []const u8) T {
+fn parseOption(comptime T: type, args: *ArgIterator, comptime opt_name: []const u8) !T {
     if (T == bool) return true;
 
-    const value = args.next() orelse fatal("expected value for '{s}'", .{opt_name});
-    return parseValue(meta.unwrapOptional(T), value);
+    const value = args.next() orelse {
+        printError("expected value for '{s}'", .{opt_name});
+        return error.MissingArgumentValue;
+    };
+    return try parseValue(meta.unwrapOptional(T), value);
 }
 
-fn parseValue(comptime T: type, arg: []const u8) T {
+fn parseValue(comptime T: type, arg: []const u8) !T {
     if (T == []const u8) return arg;
     switch (@typeInfo(T)) {
         .Int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| switch (err) {
-            error.Overflow => fatal(
-                "value out of bounds for {d}-bit {s} integer: '{s}'",
-                .{ info.bits, @tagName(info.signedness), arg },
-            ),
-            error.InvalidCharacter => fatal("expected integer value, found '{s}'", .{arg}),
+            error.Overflow => {
+                printFatalError("value out of bounds for {d}-bit {s} integer: '{s}'", .{ info.bits, @tagName(info.signedness), arg });
+                return error.IntegerDataType;
+            },
+            error.InvalidCharacter => {
+                printFatalError("expected integer value, found '{s}'", .{arg});
+                return error.InvalidDataType;
+            },
         },
         .Float => return std.fmt.parseFloat(T, arg) catch |err| switch (err) {
-            error.InvalidCharacter => fatal("expected floating-point number, found '{s}'", .{arg}),
+            error.InvalidCharacter => {
+                printFatalError("expected floating-point number, found '{s}'", .{arg});
+                return error.InvalidDataType;
+            },
         },
         .Enum => {
             inline for (std.meta.fields(T)) |field| {
@@ -199,7 +248,8 @@ fn parseValue(comptime T: type, arg: []const u8) T {
                     return @enumFromInt(field.value);
                 }
             }
-            fatal("invalid option: '{s}'", .{arg});
+            printError("invalid option: '{s}'", .{arg});
+            return error.InvalidOption;
         },
 
         else => comptime compileError("invalid flag type: {s}", .{@typeName(T)}),

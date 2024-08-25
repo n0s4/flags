@@ -1,5 +1,10 @@
 const std = @import("std");
 const meta = @import("meta.zig");
+const cons = @import("console.zig");
+
+const fmt_green_bold: []const u8 = cons.ansi ++ cons.fg_green ++ cons.text_bold;
+const fmt_white_bold: []const u8 = cons.ansi ++ cons.fg_white ++ cons.text_bold;
+const fmt_magenta_bold: []const u8 = cons.ansi ++ cons.fg_magenta ++ cons.text_bold;
 
 /// A help section with a heading and a list of items.
 const Section = struct {
@@ -16,10 +21,11 @@ const Section = struct {
 
     const indent = "  ";
 
+    /// Render the help section to a comptime string
     pub fn render(comptime section: Section) []const u8 {
-        comptime var str: []const u8 = "\n" ++ section.title ++ ":\n\n";
+        comptime var str: []const u8 = "\n" ++ fmt_green_bold ++ section.title ++ ":" ++ cons.ansi_end ++ "\n\n";
         for (section.items) |item| {
-            str = str ++ indent ++ item.name;
+            str = str ++ indent ++ fmt_white_bold ++ item.name ++ cons.ansi_end;
             if (item.description) |description| {
                 str = str ++ indent ++ " " ** (section.max_name_len - item.name.len) ++ description;
             }
@@ -28,23 +34,30 @@ const Section = struct {
         return str;
     }
 
-    pub fn add(section: *Section, item: Item) void {
+    pub fn add(comptime section: *Section, comptime item: Item) void {
         section.max_name_len = @max(section.max_name_len, item.name.len);
         section.items = section.items ++ .{item};
     }
 };
 
+/// Print the help (usage) message for the application
+pub fn printUsage(comptime Flags: type, comptime command_name: ?[]const u8, writer: anytype) !void {
+    const name: []const u8 = comptime command_name orelse meta.commandName(Flags);
+    const help: []const u8 = comptime generate(Flags, meta.info(Flags), name);
+    try writer.writeAll(help);
+}
+
+/// Generage help (usage) message string for the application
 pub fn generate(
     comptime Flags: type,
     comptime info: meta.FlagsInfo,
     comptime command_seq: []const u8,
 ) []const u8 {
-    // TODO: generate usage
     comptime var help: []const u8 = generateUsage(Flags, info, command_seq);
 
     if (@hasDecl(Flags, "description")) {
         const description: []const u8 = Flags.description; // must be a string
-        help = help ++ "\n" ++ description ++ "\n";
+        help = help ++ "\n" ++ fmt_magenta_bold ++ description ++ cons.ansi_end ++ "\n";
     }
 
     const flag_descriptions = getDescriptions(Flags);
@@ -140,7 +153,7 @@ const Usage = struct {
     }
 
     pub fn render(self: Usage, comptime command_seq: []const u8) []const u8 {
-        var usage: []const u8 = "Usage: " ++ command_seq;
+        var usage: []const u8 = fmt_green_bold ++ "Usage: " ++ cons.ansi_end ++ command_seq;
 
         const indent_len = usage.len;
         const max_line_len = 80;
@@ -295,42 +308,44 @@ test generate {
         };
     };
 
-    try std.testing.expectEqualStrings(
-        \\Usage: test [options]
-        \\
-        \\This command is for testing purposes only!
-        \\
-        \\Options:
-        \\
-        \\  -f, --force   Do it more forcefully
-        \\  -t, --target  Where to aim the laser
-        \\  --choice      Pick one
-        \\    one         First one
-        \\    two         Second one
-        \\    three       Third one
-        \\  -h, --help    Show this help and exit
-        \\
-        \\Arguments:
-        \\
-        \\  <FILE>  The file name to use
-        \\
-        \\Commands:
-        \\
-        \\  init  Make a new thing
-        \\  add   Add something to the thing
-        \\
-    , comptime generate(Flags, meta.info(Flags), "test"));
+    {
+        const help_usage = fmt_green_bold ++ "Usage: " ++ cons.ansi_end;
+        comptime var usage_str: []const u8 =
+            \\test [-f | --force] [-t | --target <target>]
+            \\                         --choice <choice> <FILE> <command>
+            \\
+            \\
+        ;
+        usage_str = usage_str ++ fmt_magenta_bold ++ "This command is for testing purposes only!" ++ cons.ansi_end ++ "\n";
 
-    const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
-    try std.testing.expectEqualStrings(
-        \\Usage: test init [options]
-        \\
-        \\Make something new!
-        \\
-        \\Options:
-        \\
-        \\  --quiet     shhhhh
-        \\  -h, --help  Show this help and exit
-        \\
-    , comptime generate(Init, meta.info(Init), "test init"));
+        const help_options = "\n" ++ fmt_green_bold ++ "Options:" ++ cons.ansi_end ++ "\n\n";
+        comptime var opts_str: []const u8 = "  " ++ fmt_white_bold ++ "-f, --force" ++ cons.ansi_end ++ "   Do it more forcefully\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "-t, --target" ++ cons.ansi_end ++ "  Where to aim the laser\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "--choice" ++ cons.ansi_end ++ "      Pick one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  one" ++ cons.ansi_end ++ "         First one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  two" ++ cons.ansi_end ++ "         Second one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "  three" ++ cons.ansi_end ++ "       Third one\n";
+        opts_str = opts_str ++ "  " ++ fmt_white_bold ++ "-h, --help" ++ cons.ansi_end ++ "    Show this help and exit\n";
+
+        const help_args = "\n" ++ fmt_green_bold ++ "Arguments:" ++ cons.ansi_end ++ "\n\n";
+        const args_str = "  " ++ fmt_white_bold ++ "<FILE>" ++ cons.ansi_end ++ "  The file name to use\n";
+
+        const help_commands = "\n" ++ fmt_green_bold ++ "Commands:" ++ cons.ansi_end ++ "\n\n";
+        comptime var cmds_str: []const u8 = "  " ++ fmt_white_bold ++ "init" ++ cons.ansi_end ++ "  Make a new thing\n";
+        cmds_str = cmds_str ++ "  " ++ fmt_white_bold ++ "add" ++ cons.ansi_end ++ "   Add something to the thing\n";
+
+        const help_text = help_usage ++ usage_str ++ help_options ++ opts_str ++ help_args ++ args_str ++ help_commands ++ cmds_str;
+        try std.testing.expectEqualStrings(help_text, comptime generate(Flags, meta.info(Flags), "test"));
+    }
+
+    {
+        comptime var usage_str: []const u8 = fmt_green_bold ++ "Usage: " ++ cons.ansi_end ++ "test init [--quiet]\n";
+        usage_str = usage_str ++ "\n" ++ fmt_magenta_bold ++ "Make something new!" ++ cons.ansi_end ++ "\n";
+        usage_str = usage_str ++ "\n" ++ fmt_green_bold ++ "Options:" ++ cons.ansi_end ++ "\n\n";
+        usage_str = usage_str ++ "  " ++ fmt_white_bold ++ "--quiet" ++ cons.ansi_end ++ "     shhhhh\n";
+        usage_str = usage_str ++ "  " ++ fmt_white_bold ++ "-h, --help" ++ cons.ansi_end ++ "  Show this help and exit\n";
+
+        const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
+        try std.testing.expectEqualStrings(usage_str, comptime generate(Init, meta.info(Init), "test init"));
+    }
 }
