@@ -296,7 +296,8 @@ test generate {
     };
 
     try std.testing.expectEqualStrings(
-        \\Usage: test [options]
+        \\Usage: test [-f | --force] [-t | --target <target>] --choice <choice> <FILE>
+        \\            <command>
         \\
         \\This command is for testing purposes only!
         \\
@@ -323,7 +324,7 @@ test generate {
 
     const Init = std.meta.FieldType(std.meta.FieldType(Flags, .command), .init);
     try std.testing.expectEqualStrings(
-        \\Usage: test init [options]
+        \\Usage: test init [--quiet]
         \\
         \\Make something new!
         \\
