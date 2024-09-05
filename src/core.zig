@@ -149,8 +149,8 @@ pub fn parse(
     inline for (info.flags) |flag| if (!@field(passed, flag.field_name)) {
         @field(flags, flag.field_name) = meta.defaultValue(flag) orelse
             switch (@typeInfo(flag.type)) {
-            .Bool => false,
-            .Optional => null,
+            .bool => false,
+            .optional => null,
             else => fatal("missing required flag: {s}", .{flag.flag_name}),
         };
     };
@@ -159,7 +159,7 @@ pub fn parse(
         if (i >= positional_parser.positional_count) {
             @field(flags.positional, pos.field_name) = meta.defaultValue(pos) orelse
                 switch (@typeInfo(pos.type)) {
-                .Optional => null,
+                .optional => null,
                 else => fatal("missing required argument: {s}", .{pos.arg_name}),
             };
         }
@@ -183,17 +183,17 @@ fn parseOption(comptime T: type, args: *ArgIterator, comptime opt_name: []const 
 fn parseValue(comptime T: type, arg: []const u8) T {
     if (T == []const u8) return arg;
     switch (@typeInfo(T)) {
-        .Int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| switch (err) {
+        .int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| switch (err) {
             error.Overflow => fatal(
                 "value out of bounds for {d}-bit {s} integer: '{s}'",
                 .{ info.bits, @tagName(info.signedness), arg },
             ),
             error.InvalidCharacter => fatal("expected integer value, found '{s}'", .{arg}),
         },
-        .Float => return std.fmt.parseFloat(T, arg) catch |err| switch (err) {
+        .float => return std.fmt.parseFloat(T, arg) catch |err| switch (err) {
             error.InvalidCharacter => fatal("expected floating-point number, found '{s}'", .{arg}),
         },
-        .Enum => {
+        .@"enum" => {
             inline for (std.meta.fields(T)) |field| {
                 if (std.mem.eql(u8, arg, meta.toKebab(field.name))) {
                     return @enumFromInt(field.value);

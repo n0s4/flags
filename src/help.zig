@@ -58,9 +58,9 @@ pub fn generate(
 
             .description = @field(flag_descriptions, flag.field_name),
         });
-        if (@typeInfo(meta.unwrapOptional(flag.type)) == .Enum) {
+        if (@typeInfo(meta.unwrapOptional(flag.type)) == .@"enum") {
             const variant_descriptions = getDescriptions(flag.type);
-            for (@typeInfo(flag.type).Enum.fields) |variant| {
+            for (@typeInfo(flag.type).@"enum".fields) |variant| {
                 options.add(.{
                     .name = Section.indent ++ meta.toKebab(variant.name),
                     .description = @field(variant_descriptions, variant.name),
@@ -112,12 +112,12 @@ fn getDescriptions(comptime S: type) Descriptions(S) {
 
     if (@hasDecl(S, "descriptions")) {
         const D = @TypeOf(S.descriptions);
-        if (@typeInfo(D) != .Struct) meta.compileError(
+        if (@typeInfo(D) != .@"struct") meta.compileError(
             "descriptions is not a struct value: {s}",
             .{@typeName(D)},
         );
 
-        for (@typeInfo(D).Struct.fields) |desc| {
+        for (@typeInfo(D).@"struct".fields) |desc| {
             if (!@hasField(S, desc.name)) meta.compileError(
                 "description name does not match any field: {s}",
                 .{desc.name},
@@ -182,7 +182,7 @@ fn generateUsage(
             flag_usage = flag_usage ++ " " ++ format;
         }
 
-        if (flag.type == bool or @typeInfo(flag.type) == .Optional or flag.default_value != null) {
+        if (flag.type == bool or @typeInfo(flag.type) == .optional or flag.default_value != null) {
             flag_usage = "[" ++ flag_usage ++ "]";
         }
 
@@ -190,7 +190,7 @@ fn generateUsage(
     }
 
     for (info.positionals) |arg| {
-        const arg_usage = if (@typeInfo(arg.type) == .Optional or arg.default_value != null)
+        const arg_usage = if (@typeInfo(arg.type) == .optional or arg.default_value != null)
             "[" ++ arg.arg_name ++ "]"
         else
             arg.arg_name;
@@ -218,12 +218,12 @@ fn getFormats(comptime S: type) Formats(S) {
 
     if (@hasDecl(S, "formats")) {
         const F = @TypeOf(S.formats);
-        if (@typeInfo(F) != .Struct) meta.compileError(
+        if (@typeInfo(F) != .@"struct") meta.compileError(
             "formats is not a struct value: {s}",
             .{@typeName(F)},
         );
 
-        for (@typeInfo(F).Struct.fields) |format| {
+        for (@typeInfo(F).@"struct".fields) |format| {
             if (!@hasField(S, format.name)) meta.compileError(
                 "format name does not match any field: {s}",
                 .{format.name},

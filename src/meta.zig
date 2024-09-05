@@ -32,7 +32,7 @@ pub const Positional = struct {
 
 pub fn info(comptime Flags: type) FlagsInfo {
     std.debug.assert(@inComptime());
-    if (@typeInfo(Flags) != .Struct) {
+    if (@typeInfo(Flags) != .@"struct") {
         compileError("input type is not a struct: {s}", .{@typeName(Flags)});
     }
 
@@ -41,12 +41,12 @@ pub fn info(comptime Flags: type) FlagsInfo {
     var switches: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), ?u8, @as(?u8, null)) = .{};
     if (@hasDecl(Flags, "switches")) {
         const Switches = @TypeOf(Flags.switches);
-        if (@typeInfo(Switches) != .Struct) compileError(
+        if (@typeInfo(Switches) != .@"struct") compileError(
             "switches is not a struct value: {s}",
             .{@typeName(Switches)},
         );
 
-        const switch_fields = @typeInfo(Switches).Struct.fields;
+        const switch_fields = @typeInfo(Switches).@"struct".fields;
         for (switch_fields, 0..) |switch_field, field_index| {
             if (!@hasField(Flags, switch_field.name)) {
                 compileError("switch name does not match any field: {s}", .{switch_field.name});
@@ -75,16 +75,16 @@ pub fn info(comptime Flags: type) FlagsInfo {
         }
     }
 
-    for (@typeInfo(Flags).Struct.fields) |field| {
+    for (@typeInfo(Flags).@"struct".fields) |field| {
         if (std.mem.eql(u8, field.name, "positional")) {
-            if (@typeInfo(field.type) != .Struct) compileError(
+            if (@typeInfo(field.type) != .@"struct") compileError(
                 "'positional' field is not a struct type: {s}",
                 .{@typeName(field.type)},
             );
 
             var seen_optional = false;
-            for (@typeInfo(field.type).Struct.fields) |positional| {
-                if (@typeInfo(positional.type) != .Optional) {
+            for (@typeInfo(field.type).@"struct".fields) |positional| {
+                if (@typeInfo(positional.type) != .optional) {
                     if (seen_optional) compileError(
                         "non-optional positional field after optional: {s}",
                         .{positional.name},
@@ -100,12 +100,12 @@ pub fn info(comptime Flags: type) FlagsInfo {
                 }};
             }
         } else if (std.mem.eql(u8, field.name, "command")) {
-            if (@typeInfo(field.type) != .Union) compileError(
+            if (@typeInfo(field.type) != .@"union") compileError(
                 "command field type is not a union: {s}",
                 .{@typeName(field.type)},
             );
 
-            for (@typeInfo(field.type).Union.fields) |cmd| {
+            for (@typeInfo(field.type).@"union".fields) |cmd| {
                 command.subcommands = command.subcommands ++ .{SubCommand{
                     .type = cmd.type,
                     .field_name = cmd.name,
@@ -132,7 +132,7 @@ pub fn compileError(comptime fmt: []const u8, args: anytype) void {
 
 pub fn unwrapOptional(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .Optional => |opt| opt.child,
+        .optional => |opt| opt.child,
         else => T,
     };
 }
