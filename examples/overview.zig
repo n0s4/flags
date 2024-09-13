@@ -8,7 +8,8 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa.allocator());
     defer args.deinit();
 
-    const result = flags.parse(&args, Overview, .{});
+    var parser = flags.Parser.init(&args, .{});
+    const result = parser.parseOrExit("overview", Flags);
 
     try std.json.stringify(
         result,
@@ -17,9 +18,7 @@ pub fn main() !void {
     );
 }
 
-// The name of your type should match your executable name, e.g "my-program" -> "MyProgram".
-// This can be overridden in the call to `flags.parse`.
-const Overview = struct {
+const Flags = struct {
     // Optional description of the program.
     pub const description =
         \\This is a dummy command for testing purposes.

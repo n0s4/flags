@@ -23,14 +23,13 @@ pub fn build(b: *std.Build) void {
     tests_step.dependOn(&tests_run.step);
     b.default_step.dependOn(tests_step);
 
-    const example_step = b.step("run-example", "Run the specifed example");
+    const example_step = b.step("run-example", "Run the specified example");
     const example_option = b.option(
         enum {
             overview,
-            trailing,
         },
         "example",
-        "Example to run for example step (default = overview).",
+        "Example to run for example step (default = overview)",
     ) orelse .overview;
     const example = b.addExecutable(.{
         .name = "example",
