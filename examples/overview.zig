@@ -8,11 +8,10 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa.allocator());
     defer args.deinit();
 
-    var parser = flags.Parser.init(&args, .{});
-    const result = parser.parseOrExit("overview", Flags);
+    const options = flags.parseOrExit(&args, "overview", Flags, .{});
 
     try std.json.stringify(
-        result,
+        options,
         .{ .whitespace = .indent_2 },
         std.io.getStdOut().writer(),
     );

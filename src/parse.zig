@@ -1,5 +1,3 @@
-const Parser = @This();
-
 const std = @import("std");
 const meta = @import("meta.zig");
 const help = @import("help.zig");
@@ -18,10 +16,14 @@ pub const Error = error{
     UnexpectedPositional,
     /// An argument beginning with '--' did not match any flag name.
     UnrecognizedFlag,
+    /// A switch character did not match any defined switch characters.
+    UnrecognizedSwitch,
+    /// Special case of user passing '-' without any switch characters.
+    UnrecognizedArgument,
     /// A flag which expects a value was passed without a value.
     MissingValue,
     /// A value which was passed for an enum option did not match any variants.
-    InvalidOption,
+    UnrecognizedOption,
     /// A required flag was not passed.
     MissingFlag,
     /// A required positional argument was not passed.
@@ -30,103 +32,87 @@ pub const Error = error{
     MissingCommand,
 } || std.fmt.ParseIntError || std.fmt.ParseFloatError;
 
-/// Carries the name, usage and help message of the command in which the parsing error occured.
-pub const ErrorInfo = struct {
-    command_name: []const u8,
-    command_usage: []const u8,
-    command_help: []const u8,
+const Env = struct {
+    args: *ArgIterator,
+    stdout: AnyWriter,
+    stderr: AnyWriter,
 };
 
-args: *ArgIterator,
-positional_count: usize,
-stderr: AnyWriter,
-stdout: AnyWriter,
-error_info: ?*ErrorInfo,
+var env: Env = undefined;
 
-pub const InitOptions = struct {
-    /// std.io.getStdErr() will be used by default.
-    stderr: ?AnyWriter = null,
-    /// std.io.getStdOut() will be used by default.
+fn report(comptime message: []const u8, args: anytype) void {
+    env.stderr.print("error: " ++ message ++ "\n", args) catch {};
+}
+
+pub const Options = struct {
     stdout: ?AnyWriter = null,
-    /// The first argument is typically the name of the executable.
+    stderr: ?AnyWriter = null,
     skip_first_arg: bool = true,
-    /// Carries optional extra information about the command in which an error occured.
-    /// Pass this if you want to print relevant usage after an error.
-    error_info: ?*ErrorInfo = null,
 };
 
-pub fn init(args: *ArgIterator, options: InitOptions) Parser {
-    if (options.skip_first_arg) _ = args.skip();
-
-    return Parser{
-        .args = args,
-        .positional_count = 0,
-        .stdout = options.stdout orelse std.io.getStdOut().writer().any(),
-        .stderr = options.stderr orelse std.io.getStdErr().writer().any(),
-        .error_info = options.error_info,
+pub fn parseOrExit(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Flags {
+    return parse(args, exe_name, Flags, options) catch |err| switch (err) {
+        Error.PrintedHelp => std.process.exit(0),
+        else => std.process.exit(1),
     };
 }
 
-pub fn parseOrExit(
-    parser: *Parser,
-    comptime command_name: []const u8,
-    comptime Flags: type,
-) Flags {
-    return parser.parse(command_name, Flags) catch |err| std.posix.exit(switch (err) {
-        error.PrintedHelp => 0,
-        else => 1,
-    });
+pub fn parse(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Error!Flags {
+    if (options.skip_first_arg) _ = args.skip();
+    env = Env{
+        .args = args,
+        .stdout = options.stdout orelse std.io.getStdOut().writer().any(),
+        .stderr = options.stderr orelse std.io.getStdErr().writer().any(),
+    };
+    return parse2(Flags, exe_name);
 }
 
-pub fn parse(parser: *Parser, comptime command_name: []const u8, comptime Flags: type) Error!Flags {
+fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
     const info = meta.info(Flags);
-
     const help_message: []const u8 = if (@hasDecl(Flags, "help"))
         Flags.help // must be a string
     else
         comptime help.generate(Flags, info, command_name);
 
-    if (parser.error_info) |error_info| {
-        error_info.command_name = command_name;
-        error_info.command_help = help_message;
-        // error_info.command_usage =
-    }
-
     var flags: Flags = undefined;
 
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
 
-    next_arg: while (parser.args.next()) |arg| {
+    next_arg: while (env.args.next()) |arg| {
         if (arg.len == 0) {
-            parser.report("empty argument", .{});
+            report("empty argument", .{});
             return Error.EmptyArgument;
         }
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            parser.stdout.writeAll(help_message) catch return Error.StdoutError;
+            env.stdout.writeAll(help_message) catch return Error.StdoutError;
             return Error.PrintedHelp;
         }
 
         if (std.mem.eql(u8, arg, "--")) {
-            // Blindly treat remaining arguments as positionals.
-            while (parser.args.next()) |positional| {
-                try parser.parsePositional(positional, info.positionals, &flags);
+            // Blindly treat remaining arguments as positional.
+            while (env.args.next()) |positional| {
+                try parsePositional(positional, info.positionals, &flags);
             }
         }
 
         if (std.mem.startsWith(u8, arg, "--")) {
             inline for (info.flags) |flag| if (std.mem.eql(u8, arg, flag.flag_name)) {
-                @field(flags, flag.field_name) = try parser.parseOption(flag.type, flag.flag_name);
+                @field(flags, flag.field_name) = try parseOption(flag.type, flag.flag_name);
                 @field(passed, flag.field_name) = true;
                 continue :next_arg;
             };
 
-            parser.report("unrecognized flag: {s}", .{arg});
+            report("unrecognized flag: {s}", .{arg});
             return Error.UnrecognizedFlag;
         }
 
         if (std.mem.startsWith(u8, arg, "-")) {
-            if (arg.len == 1) parser.report("unrecognized argument: '-'", .{});
+            if (arg.len == 1) {
+                report("unrecognized argument: '-'", .{});
+                return Error.UnrecognizedArgument;
+            }
+
             const switch_set = arg[1..];
             next_switch: for (switch_set, 0..) |ch, i| {
                 inline for (info.flags) |flag| if (flag.switch_char) |switch_char| {
@@ -134,9 +120,10 @@ pub fn parse(parser: *Parser, comptime command_name: []const u8, comptime Flags:
                         // Removing this check would allow formats like:
                         // `$ <cmd> -abc value-for-a value-for-b value-for-c`
                         if (flag.type != bool and i < switch_set.len - 1) {
-                            parser.report("expected argument after switch: {c}", .{switch_char});
+                            report("missing value after switch: {c}", .{switch_char});
+                            return Error.MissingValue;
                         }
-                        @field(flags, flag.field_name) = try parser.parseOption(
+                        @field(flags, flag.field_name) = try parseOption(
                             flag.type,
                             &.{ '-', switch_char },
                         );
@@ -144,24 +131,22 @@ pub fn parse(parser: *Parser, comptime command_name: []const u8, comptime Flags:
                         continue :next_switch;
                     }
                 };
-                parser.report("unrecognized switch: {c}", .{ch});
+                report("unrecognized switch: {c}", .{ch});
+                return Error.UnrecognizedSwitch;
             }
             continue :next_arg;
         }
 
         inline for (info.subcommands) |cmd| {
             if (std.mem.eql(u8, arg, cmd.command_name)) {
-                const cmd_flags = try parser.parse(
-                    command_name ++ " " ++ cmd.command_name,
-                    cmd.type,
-                );
+                const cmd_flags = try parse2(cmd.type, command_name ++ " " ++ cmd.command_name);
                 flags.command = @unionInit(@TypeOf(flags.command), cmd.field_name, cmd_flags);
                 passed.command = true;
                 continue :next_arg;
             }
         }
 
-        try parser.parsePositional(arg, info.positionals, &flags);
+        try parsePositional(arg, info.positionals, &flags);
     }
 
     inline for (info.flags) |flag| if (!@field(passed, flag.field_name)) {
@@ -170,19 +155,19 @@ pub fn parse(parser: *Parser, comptime command_name: []const u8, comptime Flags:
             .bool => false,
             .optional => null,
             else => {
-                parser.report("missing required flag: {s}", .{flag.flag_name});
+                report("missing required flag: {s}", .{flag.flag_name});
                 return Error.MissingFlag;
             },
         };
     };
 
     inline for (info.positionals, 0..) |pos, i| {
-        if (i >= parser.positional_count) {
+        if (i >= positional_count) {
             @field(flags.positional, pos.field_name) = meta.defaultValue(pos) orelse
                 switch (@typeInfo(pos.type)) {
                 .optional => null,
                 else => {
-                    parser.report("missing required argument: {s}", .{pos.arg_name});
+                    report("missing required argument: {s}", .{pos.arg_name});
                     return Error.MissingArgument;
                 },
             };
@@ -190,57 +175,58 @@ pub fn parse(parser: *Parser, comptime command_name: []const u8, comptime Flags:
     }
 
     if (info.subcommands.len > 0 and !passed.command) {
-        parser.report("expected subcommand", .{});
+        report("missing subcommand", .{});
         return Error.MissingCommand;
     }
 
     return flags;
 }
 
+var positional_count: usize = 0;
+
 fn parsePositional(
-    parser: *Parser,
     arg: []const u8,
     positionals: []const meta.Positional,
     flags: anytype,
 ) Error!void {
-    if (parser.positional_count >= positionals.len) {
-        parser.report("unexpected argument: {s}", .{arg});
+    if (positional_count >= positionals.len) {
+        report("unexpected argument: {s}", .{arg});
         return Error.UnexpectedPositional;
     }
 
-    switch (parser.positional_count) {
+    switch (positional_count) {
         inline 0...positionals.len - 1 => |i| {
-            parser.positional_count += 1;
+            positional_count += 1;
             const positional = positionals[i];
             const T = meta.unwrapOptional(positional.type);
-            @field(flags.positional, positional.field_name) = try parser.parseValue(T, arg);
+            @field(flags.positional, positional.field_name) = try parseValue(T, arg);
         },
         else => unreachable,
     }
 }
 
-fn parseOption(parser: Parser, comptime T: type, comptime option_name: []const u8) Error!T {
+fn parseOption(T: type, option_name: []const u8) Error!T {
     if (T == bool) return true;
 
-    const value = parser.args.next() orelse {
-        parser.report("missing value for '{s}'", .{option_name});
+    const value = env.args.next() orelse {
+        report("missing value for '{s}'", .{option_name});
         return Error.MissingValue;
     };
 
-    return try parser.parseValue(meta.unwrapOptional(T), value);
+    return try parseValue(meta.unwrapOptional(T), value);
 }
 
-fn parseValue(parser: Parser, comptime T: type, arg: []const u8) Error!T {
+fn parseValue(T: type, arg: []const u8) Error!T {
     if (T == []const u8) return arg;
 
     switch (@typeInfo(T)) {
         .int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| {
             switch (err) {
-                error.Overflow => parser.report(
+                error.Overflow => report(
                     "value out of bounds for {d}-bit {s} integer: {s}",
                     .{ info.bits, @tagName(info.signedness), arg },
                 ),
-                error.InvalidCharacter => parser.report(
+                error.InvalidCharacter => report(
                     "expected integer number, found '{s}'",
                     .{arg},
                 ),
@@ -250,7 +236,7 @@ fn parseValue(parser: Parser, comptime T: type, arg: []const u8) Error!T {
 
         .float => return std.fmt.parseFloat(T, arg) catch |err| {
             switch (err) {
-                error.InvalidCharacter => parser.report("expected numerical value, found '{s}'", .{arg}),
+                error.InvalidCharacter => report("expected numerical value, found '{s}'", .{arg}),
             }
             return err;
         },
@@ -262,14 +248,10 @@ fn parseValue(parser: Parser, comptime T: type, arg: []const u8) Error!T {
                 }
             }
 
-            parser.report("invalid option: {s}", .{arg});
-            return Error.InvalidOption;
+            report("unrecognized option: '{s}'", .{arg});
+            return Error.UnrecognizedOption;
         },
 
         else => comptime meta.compileError("invalid flag type: {s}", .{@typeName(T)}),
     }
-}
-
-fn report(parser: Parser, comptime fmt: []const u8, args: anytype) void {
-    parser.stderr.print("error: " ++ fmt ++ "\n", args) catch {};
 }
