@@ -32,10 +32,19 @@ pub const Error = error{
     MissingCommand,
 } || std.fmt.ParseIntError || std.fmt.ParseFloatError;
 
+pub const Diagnostics = struct {
+    /// The command name in which an error occured.
+    command: []const u8,
+    /// The help message for the command.
+    help: []const u8,
+};
+
 const Env = struct {
     args: *ArgIterator,
     stdout: AnyWriter,
     stderr: AnyWriter,
+    /// Gives information about the command if a parsing error occurs.
+    diagnostics: ?*Diagnostics,
 };
 
 var env: Env = undefined;
@@ -47,6 +56,7 @@ fn report(comptime message: []const u8, args: anytype) void {
 pub const Options = struct {
     stdout: ?AnyWriter = null,
     stderr: ?AnyWriter = null,
+    diagnostics: ?*Diagnostics = null,
     skip_first_arg: bool = true,
 };
 
@@ -63,6 +73,7 @@ pub fn parse(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, opt
         .args = args,
         .stdout = options.stdout orelse std.io.getStdOut().writer().any(),
         .stderr = options.stderr orelse std.io.getStdErr().writer().any(),
+        .diagnostics = options.diagnostics,
     };
     return parse2(Flags, exe_name);
 }
@@ -73,6 +84,10 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
         Flags.help // must be a string
     else
         comptime help.generate(Flags, info, command_name);
+
+    if (env.diagnostics) |error_info| {
+        error_info.* = .{ .command = command_name, .help = help_message };
+    }
 
     var flags: Flags = undefined;
 
