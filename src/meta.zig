@@ -20,6 +20,12 @@ pub const Flag = struct {
     /// For field_name == "my_flag" -> flag_name == "--my-flag".
     flag_name: []const u8,
     switch_char: ?u8,
+
+    pub fn isOptional(flag: Flag) bool {
+        return flag.type == bool or
+            @typeInfo(flag.type) == .optional or
+            flag.default_value != null;
+    }
 };
 
 pub const Positional = struct {
@@ -28,6 +34,11 @@ pub const Positional = struct {
     field_name: []const u8,
     /// The placeholder name, e.g `<FILE>`
     arg_name: []const u8,
+
+    pub fn isOptional(positional: Positional) bool {
+        return @typeInfo(positional.type) == .optional or
+            positional.default_value != null;
+    }
 };
 
 pub fn info(comptime Flags: type) FlagsInfo {
@@ -38,42 +49,7 @@ pub fn info(comptime Flags: type) FlagsInfo {
 
     var command = FlagsInfo{};
 
-    var switches: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), ?u8, @as(?u8, null)) = .{};
-    if (@hasDecl(Flags, "switches")) {
-        const Switches = @TypeOf(Flags.switches);
-        if (@typeInfo(Switches) != .@"struct") compileError(
-            "switches is not a struct value: {s}",
-            .{@typeName(Switches)},
-        );
-
-        const switch_fields = @typeInfo(Switches).@"struct".fields;
-        for (switch_fields, 0..) |switch_field, field_index| {
-            if (!@hasField(Flags, switch_field.name)) {
-                compileError("switch name does not match any field: {s}", .{switch_field.name});
-            }
-
-            const switch_val = @field(Flags.switches, switch_field.name);
-            if (@TypeOf(switch_val) != comptime_int) {
-                compileError("switch value is not a character: {any}", .{switch_val});
-            }
-            const switch_char = std.math.cast(u8, switch_val) orelse {
-                compileError("switch value is not a character: {any}", .{switch_val});
-            };
-            if (!std.ascii.isAlphanumeric(switch_char)) {
-                compileError("switch character is not a letter or digit: {c}", .{switch_char});
-            }
-
-            for (switch_fields[field_index + 1 ..]) |other_field| {
-                const other_val = @field(Flags.switches, other_field.name);
-                if (switch_val == other_val) compileError(
-                    "duplicate switch values: {s} and {s}",
-                    .{ switch_field.name, other_field.name },
-                );
-            }
-
-            @field(switches, switch_field.name) = switch_char;
-        }
-    }
+    const switches = getSwitches(Flags);
 
     for (@typeInfo(Flags).@"struct".fields) |field| {
         if (std.mem.eql(u8, field.name, "positional")) {
@@ -124,6 +100,103 @@ pub fn info(comptime Flags: type) FlagsInfo {
     }
 
     return command;
+}
+
+// A struct with fields identical to T except every field type is ?F and the default value is null.
+fn FieldAttr(T: type, F: type) type {
+    return std.enums.EnumFieldStruct(std.meta.FieldEnum(T), ?F, @as(?F, null));
+}
+
+fn getSwitches(T: type) FieldAttr(T, u8) {
+    var switches: FieldAttr(T, u8) = .{};
+
+    if (!@hasDecl(T, "switches")) {
+        return switches;
+    }
+
+    const Switches = @TypeOf(T.switches);
+    if (@typeInfo(Switches) != .@"struct") {
+        compileError("switches is not a struct value: {s}", .{@typeName(Switches)});
+    }
+
+    const switch_fields = @typeInfo(Switches).@"struct".fields;
+    for (switch_fields, 0..) |switch_field, field_index| {
+        if (!@hasField(T, switch_field.name)) {
+            compileError("switch name does not match any field: {s}", .{switch_field.name});
+        }
+
+        const switch_val = @field(T.switches, switch_field.name);
+        if (@TypeOf(switch_val) != comptime_int) {
+            compileError("switch value is not a character: {any}", .{switch_val});
+        }
+        const switch_char = std.math.cast(u8, switch_val) orelse {
+            compileError("switch value is not a character: {any}", .{switch_val});
+        };
+        if (!std.ascii.isAlphanumeric(switch_char)) {
+            compileError("switch character is not a letter or digit: {c}", .{switch_char});
+        }
+
+        for (switch_fields[field_index + 1 ..]) |other_field| {
+            const other_val = @field(T.switches, other_field.name);
+            if (switch_val == other_val) compileError(
+                "duplicate switch values: {s} and {s}",
+                .{ switch_field.name, other_field.name },
+            );
+        }
+
+        @field(switches, switch_field.name) = switch_char;
+    }
+
+    return switches;
+}
+
+pub fn getDescriptions(T: type) FieldAttr(T, []const u8) {
+    var descriptions: FieldAttr(T, []const u8) = .{};
+
+    if (!@hasDecl(T, "descriptions")) {
+        return descriptions;
+    }
+
+    const D = @TypeOf(T.descriptions);
+    if (@typeInfo(D) != .@"struct") {
+        compileError("descriptions is not a struct value: {s}", .{@typeName(D)});
+    }
+
+    for (@typeInfo(D).@"struct".fields) |field| {
+        if (!@hasField(T, field.name)) {
+            compileError("description name does not match any field: '{s}'", .{field.name});
+        }
+
+        const description = @field(T.descriptions, field.name);
+        @field(descriptions, field.name) =
+            @as([]const u8, description); // description must be a string
+    }
+
+    return descriptions;
+}
+
+pub fn getFormats(T: type) FieldAttr(T, []const u8) {
+    var formats: FieldAttr(T, []const u8) = .{};
+    if (!@hasDecl(T, "formats")) {
+        return formats;
+    }
+
+    const F = @TypeOf(T.formats);
+    if (@typeInfo(F) != .@"struct") {
+        compileError("formats is not a struct value: {s}", .{@typeName(F)});
+    }
+
+    for (@typeInfo(F).@"struct".fields) |field| {
+        if (!@hasField(T, field.name)) {
+            compileError("format name does not match any field: {s}", .{field.name});
+        }
+
+        const format = @field(T.formats, field.name);
+        @field(formats, field.name) =
+            @as([]const u8, format); // format must be a string
+    }
+
+    return formats;
 }
 
 pub fn compileError(comptime fmt: []const u8, args: anytype) void {

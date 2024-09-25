@@ -1,7 +1,11 @@
 const std = @import("std");
 const meta = @import("meta.zig");
-const help = @import("help.zig");
 
+const Help = @import("Help.zig");
+const ColorScheme = @import("ColorScheme.zig");
+const Terminal = @import("Terminal.zig");
+
+const tty = std.io.tty;
 const ArgIterator = std.process.ArgIterator;
 const AnyWriter = std.io.AnyWriter;
 
@@ -33,31 +37,64 @@ pub const Error = error{
 } || std.fmt.ParseIntError || std.fmt.ParseFloatError;
 
 pub const Diagnostics = struct {
-    /// The command name in which an error occured.
+    /// The full command name in which an error occured.
     command: []const u8,
-    /// The help message for the command.
-    help: []const u8,
+    /// The help message for the command, whether custom or auto-generated.
+    help: HelpImpl,
+    /// The terminal that can be used for rendering a generated help message.
+    /// Customised using the Options.stdout field, otherwise defaults to normal stdout.
+    stdout: Terminal,
 };
 
+const HelpImpl = union(enum) {
+    /// A custom help string for any command which has defined one via a declaration named "help".
+    custom: []const u8,
+    /// Generated help for commands which don't declare a custom "help" string.
+    /// It can be printed using the `render` method to a `Terminal`.
+    /// To print only usage, use the same method on the `usage` field of the struct.
+    generated: Help,
+};
+
+/// Global state.
 const Env = struct {
     args: *ArgIterator,
-    stdout: AnyWriter,
-    stderr: AnyWriter,
-    /// Gives information about the command if a parsing error occurs.
+    stdout: Terminal,
+    stderr: Terminal,
     diagnostics: ?*Diagnostics,
+    colors: ColorScheme,
 };
 
 var env: Env = undefined;
 
 fn report(comptime message: []const u8, args: anytype) void {
-    env.stderr.print("error: " ++ message ++ "\n", args) catch {};
+    env.stderr.print(env.colors.error_label, "Error: ", .{}) catch unreachable;
+    env.stderr.print(env.colors.error_message, message ++ "\n", args) catch unreachable;
+}
+
+fn printHelp(comptime help: HelpImpl) Error!void {
+    switch (help) {
+        .custom => |h| {
+            env.stdout.print(&.{}, h, .{}) catch unreachable;
+        },
+        .generated => |h| {
+            h.render(env.stdout, env.colors) catch unreachable;
+        },
+    }
 }
 
 pub const Options = struct {
-    stdout: ?AnyWriter = null,
-    stderr: ?AnyWriter = null,
+    /// Defaults to stdout.
+    help_writer: ?AnyWriter = null,
+    /// Defaults to stderr.
+    error_writer: ?AnyWriter = null,
+    /// Gives information about the command if a parsing error occurs.
+    /// Used to print usage/help
     diagnostics: ?*Diagnostics = null,
+    /// The first argument is normally the executable name.
     skip_first_arg: bool = true,
+    /// Defines the colors used when printing help and error messages.
+    /// To disable color, pass an empty colorscheme: `.colors = .{}`.
+    colors: ColorScheme = ColorScheme.default,
 };
 
 pub fn parseOrExit(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Flags {
@@ -69,24 +106,43 @@ pub fn parseOrExit(args: *ArgIterator, comptime exe_name: []const u8, Flags: typ
 
 pub fn parse(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Error!Flags {
     if (options.skip_first_arg) _ = args.skip();
+
     env = Env{
         .args = args,
-        .stdout = options.stdout orelse std.io.getStdOut().writer().any(),
-        .stderr = options.stderr orelse std.io.getStdErr().writer().any(),
         .diagnostics = options.diagnostics,
+        .colors = options.colors,
+
+        .stdout = if (options.help_writer) |help_writer|
+            Terminal.fromWriter(help_writer)
+        else
+            Terminal.fromFile(std.io.getStdOut()),
+
+        .stderr = if (options.error_writer) |error_writer|
+            Terminal.fromWriter(error_writer)
+        else
+            Terminal.fromFile(std.io.getStdErr()),
     };
+
+    if (env.diagnostics) |diagnostics| {
+        diagnostics.stdout = env.stdout;
+    }
     return parse2(Flags, exe_name);
 }
 
 fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
     const info = meta.info(Flags);
-    const help_message: []const u8 = if (@hasDecl(Flags, "help"))
-        Flags.help // must be a string
+
+    const help: HelpImpl = if (@hasDecl(Flags, "help"))
+        .{ .custom = Flags.help } // help must be a string
     else
-        comptime help.generate(Flags, info, command_name);
+        .{ .generated = comptime Help.generate(Flags, info, command_name) };
 
     if (env.diagnostics) |error_info| {
-        error_info.* = .{ .command = command_name, .help = help_message };
+        error_info.* = .{
+            .command = command_name,
+            .help = help,
+            .stdout = error_info.stdout,
+        };
     }
 
     var flags: Flags = undefined;
@@ -100,7 +156,7 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
         }
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            env.stdout.writeAll(help_message) catch return Error.StdoutError;
+            try printHelp(help);
             return Error.PrintedHelp;
         }
 
