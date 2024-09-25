@@ -27,7 +27,8 @@ pub fn build(b: *std.Build) void {
     const example_option = b.option(
         enum {
             overview,
-            error_handling,
+            errors,
+            colors,
         },
         "example",
         "Example to run for example step (default = overview)",

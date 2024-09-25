@@ -8,16 +8,16 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa.allocator());
     defer args.deinit();
 
-    // Contains info about a (sub)command where a parsing error occured.
+    // Contains info about a (sub)command where a parsing error occured - including help/usage.
     var diagnositics: flags.Diagnostics = undefined;
 
-    // Replace with your writer for reporting errors.
-    // Using stderr explicitly is redundant as flags uses stderr by default.
-    var error_writer = std.io.getStdErr().writer();
+    // Replace stderr with your writer for reporting errors.
+    var error_buf = std.ArrayList(u8).init(gpa.allocator());
+    defer error_buf.deinit();
 
     const options = flags.parse(&args, "error-handling", Flags, .{
         .diagnostics = &diagnositics,
-        .stderr = error_writer.any(),
+        .error_writer = error_buf.writer().any(),
     }) catch |err| {
         // When parsing is stopped due to --help being passed, this special error is returned.
         if (err == flags.Error.PrintedHelp) {
@@ -27,11 +27,18 @@ pub fn main() !void {
         }
 
         std.debug.print(
-            "caught {!} while parsing command \"{s}\"\n",
+            "caught {!} while parsing command \"{s}\"\n\n",
             .{ err, diagnositics.command },
         );
 
-        std.debug.print("command help:\n{s}", .{diagnositics.help});
+        std.debug.print("error message:\n{s}\n", .{error_buf.items});
+
+        std.debug.print("command usage:\n", .{});
+        try diagnositics.help.generated.usage.render(
+            diagnositics.stdout,
+            flags.ColorScheme.default,
+        );
+        std.debug.print("\n", .{});
 
         std.posix.exit(1);
     };
