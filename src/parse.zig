@@ -1,15 +1,25 @@
 const std = @import("std");
 const meta = @import("meta.zig");
 
-const Help = @import("Help.zig");
-const ColorScheme = @import("ColorScheme.zig");
-const Terminal = @import("Terminal.zig");
+pub const Help = @import("Help.zig");
+pub const ColorScheme = @import("ColorScheme.zig");
+pub const Terminal = @import("Terminal.zig");
+
+test {
+    _ = Help;
+}
 
 const tty = std.io.tty;
 const ArgIterator = std.process.ArgIterator;
 const AnyWriter = std.io.AnyWriter;
 
-pub const Error = error{
+pub const Error =
+    ParseError ||
+    std.fmt.ParseIntError ||
+    std.fmt.ParseFloatError ||
+    std.fs.File.WriteError;
+
+const ParseError = error{
     /// Some argument contained no characters.
     EmptyArgument,
     /// -h or --help was passed and the help message was printed instead of parsing.
@@ -34,16 +44,6 @@ pub const Error = error{
     MissingArgument,
     /// A subcommand was expected but not passed.
     MissingCommand,
-} || std.fmt.ParseIntError || std.fmt.ParseFloatError;
-
-pub const Diagnostics = struct {
-    /// The full command name in which an error occured.
-    command: []const u8,
-    /// The help message for the command, whether custom or auto-generated.
-    help: HelpImpl,
-    /// The terminal that can be used for rendering a generated help message.
-    /// Customised using the Options.stdout field, otherwise defaults to normal stdout.
-    stdout: Terminal,
 };
 
 const HelpImpl = union(enum) {
@@ -55,41 +55,28 @@ const HelpImpl = union(enum) {
     generated: Help,
 };
 
-/// Global state.
-const Env = struct {
-    args: *ArgIterator,
-    stdout: Terminal,
-    stderr: Terminal,
-    diagnostics: ?*Diagnostics,
-    colors: ColorScheme,
-};
+var args: *ArgIterator = undefined;
+var colors: ColorScheme = undefined;
 
-var env: Env = undefined;
-
-fn report(comptime message: []const u8, args: anytype) void {
-    env.stderr.print(env.colors.error_label, "Error: ", .{}) catch unreachable;
-    env.stderr.print(env.colors.error_message, message ++ "\n", args) catch unreachable;
+fn report(comptime message: []const u8, _args: anytype) void {
+    const stderr = Terminal.init(std.io.getStdErr());
+    stderr.print(colors.error_label, "Error: ", .{}) catch {};
+    stderr.print(colors.error_message, message ++ "\n", _args) catch {};
 }
 
-fn printHelp(comptime help: HelpImpl) Error!void {
+fn printHelp(comptime help: HelpImpl) std.fs.File.WriteError!void {
+    const stdout = std.io.getStdOut();
     switch (help) {
         .custom => |h| {
-            env.stdout.print(&.{}, h, .{}) catch unreachable;
+            try stdout.writer().print(h, .{});
         },
         .generated => |h| {
-            h.render(env.stdout, env.colors) catch unreachable;
+            try h.render(Terminal.init(stdout), colors);
         },
     }
 }
 
 pub const Options = struct {
-    /// Defaults to stdout.
-    help_writer: ?AnyWriter = null,
-    /// Defaults to stderr.
-    error_writer: ?AnyWriter = null,
-    /// Gives information about the command if a parsing error occurs.
-    /// Used to print usage/help
-    diagnostics: ?*Diagnostics = null,
     /// The first argument is normally the executable name.
     skip_first_arg: bool = true,
     /// Defines the colors used when printing help and error messages.
@@ -97,35 +84,28 @@ pub const Options = struct {
     colors: ColorScheme = ColorScheme.default,
 };
 
-pub fn parseOrExit(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Flags {
-    return parse(args, exe_name, Flags, options) catch |err| switch (err) {
+pub fn parseOrExit(
+    arguments: *ArgIterator,
+    comptime exe_name: []const u8,
+    Flags: type,
+    options: Options,
+) Flags {
+    return parse(arguments, exe_name, Flags, options) catch |err| switch (err) {
         Error.PrintedHelp => std.process.exit(0),
         else => std.process.exit(1),
     };
 }
 
-pub fn parse(args: *ArgIterator, comptime exe_name: []const u8, Flags: type, options: Options) Error!Flags {
-    if (options.skip_first_arg) _ = args.skip();
+pub fn parse(
+    arguments: *ArgIterator,
+    comptime exe_name: []const u8,
+    Flags: type,
+    options: Options,
+) Error!Flags {
+    if (options.skip_first_arg) _ = arguments.skip();
+    args = arguments;
+    colors = options.colors;
 
-    env = Env{
-        .args = args,
-        .diagnostics = options.diagnostics,
-        .colors = options.colors,
-
-        .stdout = if (options.help_writer) |help_writer|
-            Terminal.fromWriter(help_writer)
-        else
-            Terminal.fromFile(std.io.getStdOut()),
-
-        .stderr = if (options.error_writer) |error_writer|
-            Terminal.fromWriter(error_writer)
-        else
-            Terminal.fromFile(std.io.getStdErr()),
-    };
-
-    if (env.diagnostics) |diagnostics| {
-        diagnostics.stdout = env.stdout;
-    }
     return parse2(Flags, exe_name);
 }
 
@@ -137,19 +117,11 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
     else
         .{ .generated = comptime Help.generate(Flags, info, command_name) };
 
-    if (env.diagnostics) |error_info| {
-        error_info.* = .{
-            .command = command_name,
-            .help = help,
-            .stdout = error_info.stdout,
-        };
-    }
-
     var flags: Flags = undefined;
 
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
 
-    next_arg: while (env.args.next()) |arg| {
+    next_arg: while (args.next()) |arg| {
         if (arg.len == 0) {
             report("empty argument", .{});
             return Error.EmptyArgument;
@@ -162,7 +134,7 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
 
         if (std.mem.eql(u8, arg, "--")) {
             // Blindly treat remaining arguments as positional.
-            while (env.args.next()) |positional| {
+            while (args.next()) |positional| {
                 try parsePositional(positional, info.positionals, &flags);
             }
         }
@@ -279,7 +251,7 @@ fn parsePositional(
 fn parseOption(T: type, option_name: []const u8) Error!T {
     if (T == bool) return true;
 
-    const value = env.args.next() orelse {
+    const value = args.next() orelse {
         report("missing value for '{s}'", .{option_name});
         return Error.MissingValue;
     };

@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const root = b.path("src/root.zig");
+    const root = b.path("src/parse.zig");
 
     const mod = b.addModule("flags", .{
         .root_source_file = root,

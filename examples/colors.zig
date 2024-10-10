@@ -10,8 +10,8 @@ pub fn main() !void {
 
     _ = flags.parseOrExit(&args, "colors", Flags, .{
         // Use the `colors` option to provide a colorscheme for the error/help messages.
-        // specifying this as empty (`.colors = .{}`) would effectively disable colors.
-        // Colors are of type `std.io.tty.Color`.
+        // Specifying this as empty: `.colors = .{}` will disable colors.
+        // Each field is a list of type `std.io.tty.Color`.
         .colors = .{
             .error_label = &.{ .bright_red, .bold },
             .command_name = &.{.bright_green},
