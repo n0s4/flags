@@ -46,17 +46,24 @@ const ParseError = error{
     MissingCommand,
 };
 
+/// The name and help/usage message of the command that was being parsed.
+pub const Diagnostics = struct {
+    command: []const u8,
+    help: HelpImpl,
+};
+
 const HelpImpl = union(enum) {
     /// A custom help string for any command which has defined one via a declaration named "help".
     custom: []const u8,
     /// Generated help for commands which don't declare a custom "help" string.
-    /// It can be printed using the `render` method to a `Terminal`.
+    /// It can be printed using the `render` method with a file (e.g stdout).
     /// To print only usage, use the same method on the `usage` field of the struct.
     generated: Help,
 };
 
 var args: *ArgIterator = undefined;
 var colors: ColorScheme = undefined;
+var diagnostics: ?*Diagnostics = undefined;
 
 fn report(comptime message: []const u8, _args: anytype) void {
     const stderr = Terminal.init(std.io.getStdErr());
@@ -71,7 +78,7 @@ fn printHelp(comptime help: HelpImpl) std.fs.File.WriteError!void {
             try stdout.writer().print(h, .{});
         },
         .generated => |h| {
-            try h.render(Terminal.init(stdout), colors);
+            try h.render(stdout, colors);
         },
     }
 }
@@ -82,6 +89,7 @@ pub const Options = struct {
     /// Defines the colors used when printing help and error messages.
     /// To disable color, pass an empty colorscheme: `.colors = .{}`.
     colors: ColorScheme = ColorScheme.default,
+    diagnostics: ?*Diagnostics = null,
 };
 
 pub fn parseOrExit(
@@ -105,6 +113,7 @@ pub fn parse(
     if (options.skip_first_arg) _ = arguments.skip();
     args = arguments;
     colors = options.colors;
+    diagnostics = options.diagnostics;
 
     return parse2(Flags, exe_name);
 }
@@ -116,6 +125,11 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
         .{ .custom = Flags.help } // help must be a string
     else
         .{ .generated = comptime Help.generate(Flags, info, command_name) };
+
+    if (diagnostics) |diags| {
+        diags.command = command_name;
+        diags.help = help;
+    }
 
     var flags: Flags = undefined;
 

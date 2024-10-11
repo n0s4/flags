@@ -23,7 +23,7 @@ pub fn main() !void {
 
 const Flags = struct {
     pub const description =
-        \\ Showcase of terminal color options.
+        \\Showcase of terminal color options.
     ;
 
     foo: bool,

@@ -3,6 +3,7 @@ const Help = @This();
 const std = @import("std");
 const meta = @import("meta.zig");
 
+const File = std.fs.File;
 const ColorScheme = @import("ColorScheme.zig");
 const Terminal = @import("Terminal.zig");
 
@@ -16,7 +17,12 @@ pub const Usage = struct {
     command: []const u8,
     body: []const u8,
 
-    pub fn render(usage: Usage, term: Terminal, colors: ColorScheme) !void {
+    pub fn render(usage: Usage, stdout: File, colors: ColorScheme) File.WriteError!void {
+        const term = Terminal.init(stdout);
+        try usage.renderToTerminal(term, colors);
+    }
+
+    pub fn renderToTerminal(usage: Usage, term: Terminal, colors: ColorScheme) !void {
         try term.print(colors.header, "Usage: ", .{});
         try term.print(colors.command_name, "{s}", .{usage.command});
         try term.print(colors.usage, "{s}\n", .{usage.body});
@@ -93,8 +99,13 @@ const Section = struct {
     }
 };
 
-pub fn render(help: Help, term: Terminal, colors: ColorScheme) !void {
-    try help.usage.render(term, colors);
+pub fn render(help: Help, stdout: File, colors: ColorScheme) File.WriteError!void {
+    const term = Terminal.init(stdout);
+    try help.renderToTerminal(term, colors);
+}
+
+pub fn renderToTerminal(help: Help, term: Terminal, colors: ColorScheme) File.WriteError!void {
+    try help.usage.renderToTerminal(term, colors);
 
     if (help.description) |description| {
         try term.print(colors.command_description, "\n{s}\n", .{description});
@@ -247,7 +258,7 @@ test Help {
     const terminal = Terminal.fromWriter(output.writer().any());
 
     const help = comptime generate(Flags, meta.info(Flags), "test");
-    try help.render(terminal, ColorScheme.default);
+    try help.renderToTerminal(terminal, ColorScheme.default);
 
     try testing.expectEqualStrings(
         \\Usage: test [-f | --flag] --string <text> [--choice <choice>] [-h | --help]
