@@ -2,7 +2,7 @@ const std = @import("std");
 const flags = @import("flags");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     var args = try std.process.argsWithAllocator(gpa.allocator());

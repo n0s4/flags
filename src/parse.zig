@@ -209,8 +209,8 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
     inline for (info.flags) |flag| if (!@field(passed, flag.field_name)) {
         @field(flags, flag.field_name) = meta.defaultValue(flag) orelse
             switch (@typeInfo(flag.type)) {
-            .bool => false,
-            .optional => null,
+            .Bool => false,
+            .Optional => null,
             else => {
                 report("missing required flag: {s}", .{flag.flag_name});
                 return Error.MissingFlag;
@@ -222,7 +222,7 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
         if (i >= positional_count) {
             @field(flags.positional, pos.field_name) = meta.defaultValue(pos) orelse
                 switch (@typeInfo(pos.type)) {
-                .optional => null,
+                .Optional => null,
                 else => {
                     report("missing required argument: {s}", .{pos.arg_name});
                     return Error.MissingArgument;
@@ -277,7 +277,7 @@ fn parseValue(T: type, arg: []const u8) Error!T {
     if (T == []const u8) return arg;
 
     switch (@typeInfo(T)) {
-        .int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| {
+        .Int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| {
             switch (err) {
                 error.Overflow => report(
                     "value out of bounds for {d}-bit {s} integer: {s}",
@@ -291,14 +291,14 @@ fn parseValue(T: type, arg: []const u8) Error!T {
             return err;
         },
 
-        .float => return std.fmt.parseFloat(T, arg) catch |err| {
+        .Float => return std.fmt.parseFloat(T, arg) catch |err| {
             switch (err) {
                 error.InvalidCharacter => report("expected numerical value, found '{s}'", .{arg}),
             }
             return err;
         },
 
-        .@"enum" => |info| {
+        .Enum => |info| {
             inline for (info.fields) |field| {
                 if (std.mem.eql(u8, arg, meta.toKebab(field.name))) {
                     return @enumFromInt(field.value);

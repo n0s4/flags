@@ -152,9 +152,9 @@ pub fn generate(Flags: type, info: meta.FlagsInfo, command: []const u8) Help {
         });
 
         const T = meta.unwrapOptional(flag.type);
-        if (@typeInfo(T) == .@"enum") {
+        if (@typeInfo(T) == .Enum) {
             const variant_descriptions = meta.getDescriptions(T);
-            for (@typeInfo(T).@"enum".fields) |variant| {
+            for (@typeInfo(T).Enum.fields) |variant| {
                 options.add(.{
                     .name = "  " ++ variant.name,
                     .desc = @field(variant_descriptions, variant.name),

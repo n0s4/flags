@@ -23,7 +23,7 @@ pub const Flag = struct {
 
     pub fn isOptional(flag: Flag) bool {
         return flag.type == bool or
-            @typeInfo(flag.type) == .optional or
+            @typeInfo(flag.type) == .Optional or
             flag.default_value != null;
     }
 };
@@ -36,14 +36,14 @@ pub const Positional = struct {
     arg_name: []const u8,
 
     pub fn isOptional(positional: Positional) bool {
-        return @typeInfo(positional.type) == .optional or
+        return @typeInfo(positional.type) == .Optional or
             positional.default_value != null;
     }
 };
 
 pub fn info(comptime Flags: type) FlagsInfo {
     std.debug.assert(@inComptime());
-    if (@typeInfo(Flags) != .@"struct") {
+    if (@typeInfo(Flags) != .Struct) {
         compileError("input type is not a struct: {s}", .{@typeName(Flags)});
     }
 
@@ -51,16 +51,16 @@ pub fn info(comptime Flags: type) FlagsInfo {
 
     const switches = getSwitches(Flags);
 
-    for (@typeInfo(Flags).@"struct".fields) |field| {
+    for (@typeInfo(Flags).Struct.fields) |field| {
         if (std.mem.eql(u8, field.name, "positional")) {
-            if (@typeInfo(field.type) != .@"struct") compileError(
+            if (@typeInfo(field.type) != .Struct) compileError(
                 "'positional' field is not a struct type: {s}",
                 .{@typeName(field.type)},
             );
 
             var seen_optional = false;
-            for (@typeInfo(field.type).@"struct".fields) |positional| {
-                if (@typeInfo(positional.type) != .optional) {
+            for (@typeInfo(field.type).Struct.fields) |positional| {
+                if (@typeInfo(positional.type) != .Optional) {
                     if (seen_optional) compileError(
                         "non-optional positional field after optional: {s}",
                         .{positional.name},
@@ -76,12 +76,12 @@ pub fn info(comptime Flags: type) FlagsInfo {
                 }};
             }
         } else if (std.mem.eql(u8, field.name, "command")) {
-            if (@typeInfo(field.type) != .@"union") compileError(
+            if (@typeInfo(field.type) != .Union) compileError(
                 "command field type is not a union: {s}",
                 .{@typeName(field.type)},
             );
 
-            for (@typeInfo(field.type).@"union".fields) |cmd| {
+            for (@typeInfo(field.type).Union.fields) |cmd| {
                 command.subcommands = command.subcommands ++ .{SubCommand{
                     .type = cmd.type,
                     .field_name = cmd.name,
@@ -115,11 +115,11 @@ fn getSwitches(T: type) FieldAttr(T, u8) {
     }
 
     const Switches = @TypeOf(T.switches);
-    if (@typeInfo(Switches) != .@"struct") {
+    if (@typeInfo(Switches) != .Struct) {
         compileError("switches is not a struct value: {s}", .{@typeName(Switches)});
     }
 
-    const switch_fields = @typeInfo(Switches).@"struct".fields;
+    const switch_fields = @typeInfo(Switches).Struct.fields;
     for (switch_fields, 0..) |switch_field, field_index| {
         if (!@hasField(T, switch_field.name)) {
             compileError("switch name does not match any field: {s}", .{switch_field.name});
@@ -158,11 +158,11 @@ pub fn getDescriptions(T: type) FieldAttr(T, []const u8) {
     }
 
     const D = @TypeOf(T.descriptions);
-    if (@typeInfo(D) != .@"struct") {
+    if (@typeInfo(D) != .Struct) {
         compileError("descriptions is not a struct value: {s}", .{@typeName(D)});
     }
 
-    for (@typeInfo(D).@"struct".fields) |field| {
+    for (@typeInfo(D).Struct.fields) |field| {
         if (!@hasField(T, field.name)) {
             compileError("description name does not match any field: '{s}'", .{field.name});
         }
@@ -182,11 +182,11 @@ pub fn getFormats(T: type) FieldAttr(T, []const u8) {
     }
 
     const F = @TypeOf(T.formats);
-    if (@typeInfo(F) != .@"struct") {
+    if (@typeInfo(F) != .Struct) {
         compileError("formats is not a struct value: {s}", .{@typeName(F)});
     }
 
-    for (@typeInfo(F).@"struct".fields) |field| {
+    for (@typeInfo(F).Struct.fields) |field| {
         if (!@hasField(T, field.name)) {
             compileError("format name does not match any field: {s}", .{field.name});
         }
@@ -205,7 +205,7 @@ pub fn compileError(comptime fmt: []const u8, args: anytype) void {
 
 pub fn unwrapOptional(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .optional => |opt| opt.child,
+        .Optional => |opt| opt.child,
         else => T,
     };
 }
