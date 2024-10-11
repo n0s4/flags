@@ -101,10 +101,6 @@ const Section = struct {
 
 pub fn render(help: Help, stdout: File, colors: ColorScheme) File.WriteError!void {
     const term = Terminal.init(stdout);
-    try help.renderToTerminal(term, colors);
-}
-
-pub fn renderToTerminal(help: Help, term: Terminal, colors: ColorScheme) File.WriteError!void {
     try help.usage.renderToTerminal(term, colors);
 
     if (help.description) |description| {
@@ -115,7 +111,7 @@ pub fn renderToTerminal(help: Help, term: Terminal, colors: ColorScheme) File.Wr
         try term.print(colors.header, "\n{s}\n\n", .{section.header});
 
         for (section.items) |item| {
-            try term.print(colors.option_name, "{s}", .{item.name});
+            try term.print(colors.option_name, "  {s}", .{item.name});
             if (item.desc) |desc| {
                 try term.print(&.{}, " ", .{});
                 for (0..(section.max_name_len - item.name.len)) |_| {
