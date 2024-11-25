@@ -89,7 +89,7 @@ pub const Options = struct {
     /// The first argument is normally the executable name.
     skip_first_arg: bool = true,
     /// Trailing positional arguments will be appended to this list.
-    trailing_list: ?*std.ArrayList([]const u8),
+    trailing_list: ?*std.ArrayList([]const u8) = null,
     /// Defines the colors used when printing help and error messages.
     /// To disable color, pass an empty colorscheme: `.colors = .{}`.
     colors: ColorScheme = ColorScheme.default,
