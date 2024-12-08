@@ -249,7 +249,7 @@ fn parse2(Flags: type, comptime command_name: []const u8) Error!Flags {
 var positional_count: usize = 0;
 
 fn parsePositional(
-    arg: []const u8,
+    arg: [:0]const u8,
     positionals: []const meta.Positional,
     flags: anytype,
 ) Error!void {
@@ -284,8 +284,8 @@ fn parseOption(T: type, option_name: []const u8) Error!T {
     return try parseValue(meta.unwrapOptional(T), value);
 }
 
-fn parseValue(T: type, arg: []const u8) Error!T {
-    if (T == []const u8) return arg;
+fn parseValue(T: type, arg: [:0]const u8) Error!T {
+    if (T == []const u8 or T == [:0]const u8) return arg;
 
     switch (@typeInfo(T)) {
         .int => |info| return std.fmt.parseInt(T, arg, 10) catch |err| {
