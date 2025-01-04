@@ -31,6 +31,7 @@ description: Style = &.{},
 pub const default = ColorScheme{
     .error_label = &.{ .red, .bold },
     .header = &.{ .bright_green, .bold },
-    .command_name = &.{.bright_yellow},
-    .option_name = &.{.bright_yellow},
+    .usage = &.{.cyan},
+    .command_name = &.{ .bold, .cyan },
+    .option_name = &.{ .bold, .cyan },
 };
