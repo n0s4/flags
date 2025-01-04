@@ -5,13 +5,8 @@ pub const Help = @import("Help.zig");
 pub const ColorScheme = @import("ColorScheme.zig");
 pub const Terminal = @import("Terminal.zig");
 
-test {
-    _ = Help;
-}
-
 const tty = std.io.tty;
 const ArgIterator = std.process.ArgIterator;
-const AnyWriter = std.io.AnyWriter;
 
 pub const Error =
     ParseError ||
@@ -63,7 +58,6 @@ const HelpImpl = union(enum) {
 };
 
 var args: *ArgIterator = undefined;
-var trailing_list: ?*std.ArrayList([]const u8) = undefined;
 var colors: ColorScheme = undefined;
 var diagnostics: ?*Diagnostics = undefined;
 
@@ -88,8 +82,6 @@ fn printHelp(comptime help: HelpImpl) std.fs.File.WriteError!void {
 pub const Options = struct {
     /// The first argument is normally the executable name.
     skip_first_arg: bool = true,
-    /// Trailing positional arguments will be appended to this list.
-    trailing_list: ?*std.ArrayList([]const u8) = null,
     /// Defines the colors used when printing help and error messages.
     /// To disable color, pass an empty colorscheme: `.colors = .{}`.
     colors: ColorScheme = ColorScheme.default,
@@ -120,7 +112,6 @@ pub fn parse(
     args = arguments;
     colors = options.colors;
     diagnostics = options.diagnostics;
-    trailing_list = options.trailing_list;
 
     return parse2(Flags, exe_name);
 }
@@ -254,12 +245,8 @@ fn parsePositional(
     flags: anytype,
 ) Error!void {
     if (positional_count >= positionals.len) {
-        const list = trailing_list orelse {
-            report("unexpected argument: {s}", .{arg});
-            return Error.UnexpectedPositional;
-        };
-
-        return list.append(arg);
+        report("unexpected argument: {s}", .{arg});
+        return Error.UnexpectedPositional;
     }
 
     switch (positional_count) {
