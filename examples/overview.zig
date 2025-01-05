@@ -5,10 +5,12 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
 
-    var args = try std.process.argsWithAllocator(gpa.allocator());
-    defer args.deinit();
+    const args = try std.process.argsAlloc(gpa.allocator());
+    defer std.process.argsFree(gpa.allocator(), args);
 
-    const options = flags.parseOrExit(&args, "overview", Flags, .{});
+    var parser = flags.Parser.init;
+    const options = parser.parseOrExit(args, "overview", Flags, .{});
+    // const options = flags.parseOrExit(&args, "overview", Flags, .{});
 
     try std.json.stringify(
         options,

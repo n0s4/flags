@@ -17,12 +17,12 @@ pub const Usage = struct {
     command: []const u8,
     body: []const u8,
 
-    pub fn render(usage: Usage, stdout: File, colors: ColorScheme) File.WriteError!void {
+    pub fn render(usage: Usage, stdout: File, colors: *const ColorScheme) File.WriteError!void {
         const term = Terminal.init(stdout);
         try usage.renderToTerminal(term, colors);
     }
 
-    pub fn renderToTerminal(usage: Usage, term: Terminal, colors: ColorScheme) !void {
+    pub fn renderToTerminal(usage: Usage, term: Terminal, colors: *const ColorScheme) !void {
         try term.print(colors.header, "Usage: ", .{});
         try term.print(colors.command_name, "{s}", .{usage.command});
         try term.print(colors.usage, "{s}\n", .{usage.body});
@@ -99,7 +99,7 @@ const Section = struct {
     }
 };
 
-pub fn render(help: Help, stdout: File, colors: ColorScheme) File.WriteError!void {
+pub fn render(help: *const Help, stdout: File, colors: *const ColorScheme) File.WriteError!void {
     const term = Terminal.init(stdout);
     try help.usage.renderToTerminal(term, colors);
 
@@ -140,7 +140,7 @@ pub fn render(help: Help, stdout: File, colors: ColorScheme) File.WriteError!voi
 }
 
 pub fn generate(Flags: type, info: meta.FlagsInfo, command: []const u8) Help {
-    var help = Help{
+    comptime var help = Help{
         .usage = Usage.generate(Flags, info, command),
         .description = if (@hasDecl(Flags, "description"))
             @as([]const u8, Flags.description) // description must be a string

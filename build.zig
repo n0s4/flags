@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const root = b.path("src/parse.zig");
+    const root = b.path("src/flags.zig");
 
     const mod = b.addModule("flags", .{
         .root_source_file = root,
@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) void {
         "example",
         "Example to run for example step (default = overview)",
     ) orelse .overview;
+
     const example = b.addExecutable(.{
         .name = "example",
         .root_source_file = b.path(b.fmt("examples/{s}.zig", .{@tagName(example_option)})),
