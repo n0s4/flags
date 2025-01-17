@@ -70,7 +70,7 @@ pub fn info(comptime Flags: type) FlagsInfo {
                 }
                 command.positionals = command.positionals ++ .{Positional{
                     .type = positional.type,
-                    .default_value = positional.default_value,
+                    .default_value = positional.default_value_ptr,
                     .field_name = positional.name,
                     .arg_name = positionalName(positional),
                 }};
@@ -91,7 +91,7 @@ pub fn info(comptime Flags: type) FlagsInfo {
         } else {
             command.flags = command.flags ++ .{Flag{
                 .type = field.type,
-                .default_value = field.default_value,
+                .default_value = field.default_value_ptr,
                 .field_name = field.name,
                 .flag_name = "--" ++ toKebab(field.name),
                 .switch_char = @field(switches, field.name),
