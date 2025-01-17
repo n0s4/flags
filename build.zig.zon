@@ -1,7 +1,7 @@
 .{
     .name = "flags",
     .version = "0.8.0",
-
+    .minimum_zig_version = "0.14.0-dev.2802+257054a14",
     // Want to limit these to only the things that really constitute "the library".
     // The hash needn't be updated by some small change to the README.
     .paths = .{
