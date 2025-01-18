@@ -8,23 +8,25 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(gpa.allocator());
     defer std.process.argsFree(gpa.allocator(), args);
 
-    var parser = flags.Parser.init;
-    const result = parser.parse(args, "errors", Flags, .{}) catch |err| {
+    // A diagnostics struct can be passed, to which the name and help message of the most recently
+    // parsed (sub)command will be stored. This can be used to provide extra information in the
+    // case of an error.
+    var diagnostics: flags.Diagnostics = undefined;
+    const result = flags.parse(args, "errors", Flags, .{
+        .diagnostics = &diagnostics,
+    }) catch |err| {
         // This error is returned when "--help" is passed, not when an actual error occured.
         if (err == error.PrintedHelp) {
             std.posix.exit(0);
         }
 
-        // The parser stores the name and generated help message for the command it was parsing,
-        // these can be used for additional error reporting.
-
         std.debug.print(
             "Encountered error while parsing for command '{s}': {s}\n",
-            .{ parser.command_name, @errorName(err) },
+            .{ diagnostics.command_name, @errorName(err) },
         );
 
         // Convenience for printing usage part of help message to stdout:
-        try parser.printUsage();
+        try diagnostics.printUsage(&flags.ColorScheme.default);
 
         std.posix.exit(1);
     };

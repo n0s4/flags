@@ -3,6 +3,11 @@ const Parser = @This();
 const std = @import("std");
 const meta = @import("meta.zig");
 
+const root = @import("flags.zig");
+const Diagnostics = root.Diagnostics;
+const Options = root.Options;
+const Error = root.Error;
+
 pub const Help = @import("Help.zig");
 pub const ColorScheme = @import("ColorScheme.zig");
 pub const Terminal = @import("Terminal.zig");
@@ -10,43 +15,7 @@ pub const Terminal = @import("Terminal.zig");
 args: []const [:0]const u8,
 current_arg: usize,
 colors: *const ColorScheme,
-/// The name of the command being parsed, can be used for error reporting.
-command_name: []const u8,
-/// The generated help message for the command being parsed, can be used in case of an error.
-help: Help,
-
-pub fn printHelp(parser: *const Parser) !void {
-    const stdout = std.io.getStdOut();
-    try parser.help.render(stdout, parser.colors);
-}
-
-pub fn printUsage(parser: *const Parser) !void {
-    const stdout = std.io.getStdOut();
-    try parser.help.usage.render(stdout, parser.colors);
-}
-
-// TODO:
-// fn printUsage
-
-pub const Error = error{
-    EmptyArgument,
-    /// -h or --help was passed and the help message was printed instead of parsing.
-    PrintedHelp,
-    StdoutError,
-    UnexpectedPositional,
-    UnrecognizedFlag,
-    UnrecognizedSwitch,
-    UnrecognizedArgument,
-    MissingValue,
-    UnrecognizedOption,
-    MissingFlag,
-    MissingArgument,
-    MissingCommand,
-} ||
-    std.fmt.ParseIntError ||
-    std.fmt.ParseFloatError ||
-    std.fs.File.WriteError ||
-    std.mem.Allocator.Error;
+diagnostics: ?*Diagnostics,
 
 fn report(parser: *const Parser, comptime fmt: []const u8, args: anytype) void {
     const stderr = Terminal.init(std.io.getStdErr());
@@ -54,53 +23,14 @@ fn report(parser: *const Parser, comptime fmt: []const u8, args: anytype) void {
     stderr.print(parser.colors.error_message, fmt ++ "\n", args) catch {};
 }
 
-// The init is a lie. All state is set up in `parse`.
-pub const init: Parser = undefined;
-
-pub const Options = struct {
-    skip_first_arg: bool = true,
-    colors: *const ColorScheme = &.default,
-};
-
-pub fn parseOrExit(
-    parser: *Parser,
-    args: []const [:0]const u8,
-    /// The name of your program.
-    comptime exe_name: []const u8,
-    comptime Flags: type,
-    options: Options,
-) Flags {
-    return parser.parse(args, exe_name, Flags, options) catch |err| switch (err) {
-        Error.PrintedHelp => std.process.exit(0),
-        else => std.process.exit(1),
-    };
-}
-
-pub fn parse(
-    parser: *Parser,
-    args: []const [:0]const u8,
-    /// The name of your program.
-    comptime exe_name: []const u8,
-    comptime Flags: type,
-    options: Options,
-) Error!Flags {
-    parser.* = .{
-        .args = args,
-        .current_arg = if (options.skip_first_arg) 1 else 0,
-        .colors = options.colors,
-        // These are set in parseInner.
-        .command_name = undefined,
-        .help = undefined,
-    };
-
-    return parser.parseInner(Flags, exe_name);
-}
-
-fn parseInner(parser: *Parser, Flags: type, comptime command_name: []const u8) Error!Flags {
+pub fn parse(parser: *Parser, Flags: type, comptime command_name: []const u8) Error!Flags {
     const info = comptime meta.info(Flags);
+    const help = comptime Help.generate(Flags, info, command_name);
 
-    parser.command_name = command_name;
-    parser.help = comptime Help.generate(Flags, info, command_name);
+    if (parser.diagnostics) |diags| {
+        diags.command_name = command_name;
+        diags.help = help;
+    }
 
     var flags: Flags = undefined;
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
@@ -115,14 +45,15 @@ fn parseInner(parser: *Parser, Flags: type, comptime command_name: []const u8) E
         }
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            try parser.printHelp();
+            try help.render(std.io.getStdOut(), parser.colors);
             return Error.PrintedHelp;
         }
 
         if (std.mem.eql(u8, arg, "--")) {
             // Blindly treat remaining arguments as positional.
             while (parser.nextArg()) |positional| {
-                try parser.parsePositional(positional, &positional_index, info.positionals, &flags);
+                try parser.parsePositional(positional, positional_index, info.positionals, &flags);
+                positional_index += 1;
             }
         }
 
@@ -169,14 +100,15 @@ fn parseInner(parser: *Parser, Flags: type, comptime command_name: []const u8) E
 
         inline for (info.subcommands) |cmd| {
             if (std.mem.eql(u8, arg, cmd.command_name)) {
-                const cmd_flags = try parser.parseInner(cmd.type, command_name ++ " " ++ cmd.command_name);
+                const cmd_flags = try parser.parse(cmd.type, command_name ++ " " ++ cmd.command_name);
                 flags.command = @unionInit(@TypeOf(flags.command), cmd.field_name, cmd_flags);
                 passed.command = true;
                 continue :next_arg;
             }
         }
 
-        try parser.parsePositional(arg, &positional_index, info.positionals, &flags);
+        try parser.parsePositional(arg, positional_index, info.positionals, &flags);
+        positional_index += 1;
     }
 
     inline for (info.flags) |flag| if (!@field(passed, flag.field_name)) {
@@ -215,18 +147,17 @@ fn parseInner(parser: *Parser, Flags: type, comptime command_name: []const u8) E
 fn parsePositional(
     parser: *Parser,
     arg: [:0]const u8,
-    index: *usize,
+    index: usize,
     comptime positionals: []const meta.Positional,
     flags: anytype,
 ) Error!void {
-    if (index.* >= positionals.len) {
+    if (index >= positionals.len) {
         parser.report("unexpected argument: {s}", .{arg});
         return error.UnexpectedPositional;
     }
 
-    switch (index.*) {
+    switch (index) {
         inline 0...positionals.len - 1 => |i| {
-            index.* += 1;
             const positional = positionals[i];
             const T = meta.unwrapOptional(positional.type);
             @field(flags.positional, positional.field_name) = try parser.parseValue(T, arg);

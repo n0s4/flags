@@ -8,9 +8,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(gpa.allocator());
     defer std.process.argsFree(gpa.allocator(), args);
 
-    var parser = flags.Parser.init;
-    const options = parser.parseOrExit(args, "overview", Flags, .{});
-    // const options = flags.parseOrExit(&args, "overview", Flags, .{});
+    const options = flags.parseOrExit(args, "overview", Flags, .{});
 
     try std.json.stringify(
         options,
