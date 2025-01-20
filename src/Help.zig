@@ -114,10 +114,24 @@ pub fn render(help: Help, stdout: File, colors: ColorScheme) File.WriteError!voi
             try term.print(colors.option_name, "  {s}", .{item.name});
             if (item.desc) |desc| {
                 try term.print(&.{}, " ", .{});
-                for (0..(section.max_name_len - item.name.len)) |_| {
-                    try term.print(&.{}, " ", .{});
+
+                // Ensure the description gets printed as it looks in the user's Flags struct
+                // (Left-align all lines, even with multi-line descriptions)
+                var lines = std.mem.tokenizeAny(u8, desc, "\r\n");
+                if (lines.next()) |line1| {
+                    for (0..(section.max_name_len - item.name.len)) |_| {
+                        try term.print(&.{}, " ", .{});
+                    }
+                    try term.print(colors.description, "{s}", .{line1});
                 }
-                try term.print(colors.description, "{s}", .{desc});
+
+                while (lines.next()) |line| {
+                    try term.print(&.{}, "\n", .{});
+                    for (0..(section.max_name_len + 3)) |_| {
+                        try term.print(&.{}, " ", .{});
+                    }
+                    try term.print(colors.description, "{s}", .{line});
+                }
             }
 
             try term.print(&.{}, "\n", .{});
