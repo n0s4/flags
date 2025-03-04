@@ -60,6 +60,9 @@ pub fn info(comptime Flags: type) FlagsInfo {
 
             var seen_optional = false;
             for (@typeInfo(field.type).@"struct".fields) |positional| {
+                if (std.mem.eql(u8, positional.name, "trailing")) {
+                    continue;
+                }
                 if (@typeInfo(positional.type) != .optional) {
                     if (seen_optional) compileError(
                         "non-optional positional field after optional: {s}",
@@ -100,6 +103,11 @@ pub fn info(comptime Flags: type) FlagsInfo {
     }
 
     return command;
+}
+
+pub fn hasTrailingField(Flags: type) bool {
+    return @hasField(Flags, "positional") and
+        @hasField(@FieldType(Flags, "positional"), "trailing");
 }
 
 // A struct with fields identical to T except every field type is ?F and the default value is null.

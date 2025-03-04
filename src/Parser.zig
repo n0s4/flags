@@ -35,6 +35,10 @@ pub fn parse(parser: *Parser, Flags: type, comptime command_name: []const u8) Er
     var flags: Flags = undefined;
     var passed: std.enums.EnumFieldStruct(std.meta.FieldEnum(Flags), bool, false) = .{};
 
+    if (comptime meta.hasTrailingField(Flags)) {
+        flags.positional.trailing = &.{};
+    }
+
     // The index of the next positional field to be parsed.
     var positional_index: usize = 0;
 
@@ -52,7 +56,9 @@ pub fn parse(parser: *Parser, Flags: type, comptime command_name: []const u8) Er
         if (std.mem.eql(u8, arg, "--")) {
             // Blindly treat remaining arguments as positional.
             while (parser.nextArg()) |positional| {
-                try parser.parsePositional(positional, positional_index, info.positionals, &flags);
+                if (try parser.parsePositional(positional, positional_index, info.positionals, &flags) == .consumed_all) {
+                    break :next_arg;
+                }
                 positional_index += 1;
             }
         }
@@ -107,32 +113,34 @@ pub fn parse(parser: *Parser, Flags: type, comptime command_name: []const u8) Er
             }
         }
 
-        try parser.parsePositional(arg, positional_index, info.positionals, &flags);
+        if (try parser.parsePositional(arg, positional_index, info.positionals, &flags) == .consumed_all) {
+            break :next_arg;
+        }
         positional_index += 1;
     }
 
     inline for (info.flags) |flag| if (!@field(passed, flag.field_name)) {
         @field(flags, flag.field_name) = meta.defaultValue(flag) orelse
             switch (@typeInfo(flag.type)) {
-            .bool => false,
-            .optional => null,
-            else => {
-                parser.report("missing required flag: {s}", .{flag.flag_name});
-                return Error.MissingFlag;
-            },
-        };
+                .bool => false,
+                .optional => null,
+                else => {
+                    parser.report("missing required flag: {s}", .{flag.flag_name});
+                    return Error.MissingFlag;
+                },
+            };
     };
 
     inline for (info.positionals, 0..) |pos, i| {
         if (i >= positional_index) {
             @field(flags.positional, pos.field_name) = meta.defaultValue(pos) orelse
                 switch (@typeInfo(pos.type)) {
-                .optional => null,
-                else => {
-                    parser.report("missing required argument: {s}", .{pos.arg_name});
-                    return Error.MissingArgument;
-                },
-            };
+                    .optional => null,
+                    else => {
+                        parser.report("missing required argument: {s}", .{pos.arg_name});
+                        return Error.MissingArgument;
+                    },
+                };
         }
     }
 
@@ -150,8 +158,13 @@ fn parsePositional(
     index: usize,
     comptime positionals: []const meta.Positional,
     flags: anytype,
-) Error!void {
+) Error!enum { consumed_one, consumed_all } {
     if (index >= positionals.len) {
+        if (comptime meta.hasTrailingField(@TypeOf(flags.*))) {
+            flags.positional.trailing = parser.args[parser.current_arg - 1 ..];
+            parser.current_arg = parser.args.len;
+            return .consumed_all;
+        }
         parser.report("unexpected argument: {s}", .{arg});
         return error.UnexpectedPositional;
     }
@@ -161,6 +174,7 @@ fn parsePositional(
             const positional = positionals[i];
             const T = meta.unwrapOptional(positional.type);
             @field(flags.positional, positional.field_name) = try parser.parseValue(T, arg);
+            return .consumed_one;
         },
 
         else => unreachable,

@@ -83,6 +83,10 @@ const Flags = struct {
             };
 
             level: u8,
+
+            positional: struct {
+                trailing: []const []const u8,
+            },
         },
         defrabulise: struct {
             supercharge: bool,
